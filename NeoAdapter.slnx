@@ -1,3 +1,10 @@
 <Solution>
-  <Folder Name="/src/" />
+  <Folder Name="/src/">
+    <Project Path="src/NeoAdapter.Api/NeoAdapter.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/NeoAdapter.Frontend/">
+    <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/NeoAdapter.Frontend.Browser.csproj" />
+    <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend.Desktop/NeoAdapter.Frontend.Desktop.csproj" />
+    <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend/NeoAdapter.Frontend.csproj" />
+  </Folder>
 </Solution>
