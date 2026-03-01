@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/NeoAdapter.Api/NeoAdapter.Api.csproj" />
+    <Project Path="src/NeoAdapter.Application/NeoAdapter.Application.csproj" />
   </Folder>
   <Folder Name="/src/NeoAdapter.Frontend/">
     <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/NeoAdapter.Frontend.Browser.csproj" />
