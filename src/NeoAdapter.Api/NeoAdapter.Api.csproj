@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NeoAdapter.Application\NeoAdapter.Application.csproj" />
+    <ProjectReference Include="..\NeoAdapter.Contracts\NeoAdapter.Contracts.csproj" />
     <ProjectReference Include="..\NeoAdapter.Domain\NeoAdapter.Domain.csproj" />
   </ItemGroup>
 

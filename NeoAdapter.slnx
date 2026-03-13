@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/NeoAdapter.Api/NeoAdapter.Api.csproj" />
     <Project Path="src/NeoAdapter.Application/NeoAdapter.Application.csproj" />
+    <Project Path="src/NeoAdapter.Contracts/NeoAdapter.Contracts.csproj" />
     <Project Path="src/NeoAdapter.Domain/NeoAdapter.Domain.csproj" />
   </Folder>
   <Folder Name="/src/NeoAdapter.Frontend/">
