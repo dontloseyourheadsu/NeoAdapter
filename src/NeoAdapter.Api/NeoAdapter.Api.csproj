@@ -8,11 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.14" />
+    <PackageReference Include="Hangfire.PostgreSql" Version="1.20.8" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.3" NoWarn="NU1605" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.3" NoWarn="NU1605" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.3" />
     <PackageReference Include="Microsoft.Identity.Web" Version="3.14.1"/>
     <PackageReference Include="Microsoft.Identity.Web.DownstreamApi" Version="3.14.1"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NeoAdapter.Application\NeoAdapter.Application.csproj" />
+    <ProjectReference Include="..\NeoAdapter.Domain\NeoAdapter.Domain.csproj" />
   </ItemGroup>
 
 </Project>
