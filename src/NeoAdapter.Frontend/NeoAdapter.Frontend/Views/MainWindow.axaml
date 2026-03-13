@@ -7,6 +7,8 @@
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="NeoAdapter.Frontend.Views.MainWindow"
         Icon="/Assets/avalonia-logo.ico"
-        Title="NeoAdapter.Frontend">
+        Width="1440"
+        Height="900"
+        Title="NeoAdapter">
         <views:MainView />
 </Window>
