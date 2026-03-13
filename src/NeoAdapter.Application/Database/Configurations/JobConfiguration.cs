@@ -29,6 +29,11 @@ public sealed class JobConfiguration : IEntityTypeConfiguration<Job>
             .HasMaxLength(500)
             .IsRequired();
 
+        builder.Property(job => job.ColorHex)
+            .HasColumnName("color_hex")
+            .HasMaxLength(9)
+            .IsRequired();
+
         builder.Property(job => job.Schedule)
             .HasColumnName("schedule")
             .HasColumnType("jsonb")
