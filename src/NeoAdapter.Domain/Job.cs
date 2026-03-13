@@ -12,6 +12,8 @@ public sealed class Job
 
     public string Target { get; set; } = string.Empty;
 
+    public string ColorHex { get; set; } = "#8B44F7";
+
     public JsonDocument Schedule { get; set; } = JsonDocument.Parse("[]");
 
     public DateTime CreatedDate { get; set; }
