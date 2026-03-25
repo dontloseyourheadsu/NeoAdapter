@@ -80,6 +80,7 @@ public partial class App : Application
         };
 
         var dashboardApiClient = new DashboardApiClient(httpClient);
-        return new MainViewModel(dashboardApiClient);
+        var pipelineEditorApiClient = new PipelineEditorApiClient(httpClient);
+        return new MainViewModel(dashboardApiClient, pipelineEditorApiClient);
     }
 }
