@@ -13,6 +13,8 @@ public sealed class DashboardService(NeoAdapterDbContext dbContext) : IDashboard
 
         var jobs = await dbContext.IntegrationJobs
             .AsNoTracking()
+            .Include(item => item.SourceConnector)
+            .Include(item => item.DestinationConnector)
             .OrderBy(item => item.Name)
             .ToListAsync(cancellationToken);
 
@@ -36,7 +38,7 @@ public sealed class DashboardService(NeoAdapterDbContext dbContext) : IDashboard
                 return new DashboardJobSummaryItem(
                     job.Id,
                     job.Name,
-                    $"{job.SourceConnectorId} -> {job.DestinationConnectorId}",
+                    $"{job.SourceConnector?.Name ?? "Unknown"} -> {job.DestinationConnector?.Name ?? "Unknown"}",
                     latestRun?.Status ?? (job.IsEnabled ? "READY" : "DISABLED"),
                     latestRun?.StartedAtUtc,
                     latestRun?.Message);
