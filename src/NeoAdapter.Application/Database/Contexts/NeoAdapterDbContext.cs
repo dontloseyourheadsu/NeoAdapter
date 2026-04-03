@@ -7,6 +7,12 @@ public sealed class NeoAdapterDbContext(DbContextOptions<NeoAdapterDbContext> op
 {
     public DbSet<Job> Jobs => Set<Job>();
 
+    public DbSet<Connector> Connectors => Set<Connector>();
+
+    public DbSet<IntegrationJob> IntegrationJobs => Set<IntegrationJob>();
+
+    public DbSet<IntegrationJobRun> IntegrationJobRuns => Set<IntegrationJobRun>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(NeoAdapterDbContext).Assembly);

@@ -2,35 +2,23 @@ namespace NeoAdapter.Contracts.Dashboard;
 
 public sealed record DashboardResponse(
     int TotalJobs,
-    int ActiveJobs,
-    int QueuedJobs,
-    int FailedJobs,
-    IReadOnlyList<DashboardScheduleItem> Schedule,
-    IReadOnlyList<DashboardJobItem> ActiveJobsList,
-    IReadOnlyList<DashboardIntegrationItem> Integrations,
-    IReadOnlyList<DashboardLogItem> Logs,
+    int EnabledJobs,
+    int FailedRunsLast24Hours,
+    int TotalConnectors,
+    IReadOnlyList<DashboardJobSummaryItem> Jobs,
+    IReadOnlyList<DashboardRunItem> RecentRuns,
     DateTimeOffset GeneratedAtUtc);
 
-public sealed record DashboardScheduleItem(
-    string TimeLabel,
-    string JobName,
-    string DurationLabel,
-    string Status,
-    string ColorHex);
-
-public sealed record DashboardJobItem(
+public sealed record DashboardJobSummaryItem(
+    Guid Id,
     string Name,
-    string Meta,
+    string Direction,
     string Status,
-    string ColorHex);
+    DateTimeOffset? LastRunAtUtc,
+    string? LastRunMessage);
 
-public sealed record DashboardIntegrationItem(
-    string Name,
-    int JobCount,
-    bool Connected,
-    string ColorHex);
-
-public sealed record DashboardLogItem(
+public sealed record DashboardRunItem(
     DateTimeOffset TimestampUtc,
     string Level,
-    string Message);
+    string Message,
+    string JobName);
