@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: neoadapter-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: neoadapter_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - neoadapter_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d neoadapter_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  api:
+    build:
+      context: .
+      dockerfile: src/NeoAdapter.Api/Dockerfile
+    container_name: neoadapter-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=neoadapter_dev;Username=postgres;Password=postgres
+      Jwt__Issuer: NeoAdapter
+      Jwt__Audience: NeoAdapter.Client
+      Jwt__Key: DevOnly_ChangeThisJwtKey_ToSomethingLongAndRandom
+      Jwt__ExpiresMinutes: 120
+    ports:
+      - "5193:8080"
+
+  frontend-browser:
+    build:
+      context: .
+      dockerfile: src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/Dockerfile
+    container_name: neoadapter-frontend-browser
+    depends_on:
+      - api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      NEOADAPTER_API_BASE_URL: http://localhost:5193/
+    ports:
+      - "5235:8080"
+
+volumes:
+  neoadapter_postgres_data:
