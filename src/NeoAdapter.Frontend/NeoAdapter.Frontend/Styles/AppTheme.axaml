@@ -1,0 +1,76 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Styles.Resources>
+        <SolidColorBrush x:Key="NeoBackgroundBrush" Color="#0A0910" />
+        <SolidColorBrush x:Key="NeoHeaderBrush" Color="#100F1A" />
+        <SolidColorBrush x:Key="NeoPanelBrush" Color="#141220" />
+        <SolidColorBrush x:Key="NeoPanelAltBrush" Color="#1A1828" />
+        <SolidColorBrush x:Key="NeoBorderBrush" Color="#2A2440" />
+        <SolidColorBrush x:Key="NeoPrimaryTextBrush" Color="#E8E3F5" />
+        <SolidColorBrush x:Key="NeoMutedTextBrush" Color="#9B93B8" />
+        <SolidColorBrush x:Key="NeoAccentBrush" Color="#C7A6FF" />
+        <SolidColorBrush x:Key="NeoDangerBrush" Color="#FF5F7E" />
+    </Styles.Resources>
+
+    <Style Selector="Border.panel">
+        <Setter Property="Background" Value="{DynamicResource NeoPanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource NeoBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+    </Style>
+
+    <Style Selector="Border.metric-card">
+        <Setter Property="Background" Value="{DynamicResource NeoPanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource NeoBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+    </Style>
+
+    <Style Selector="Border.list-row">
+        <Setter Property="Background" Value="{DynamicResource NeoPanelAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource NeoBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="10" />
+        <Setter Property="Margin" Value="0,2,0,2" />
+    </Style>
+
+    <Style Selector="TextBlock.muted">
+        <Setter Property="Foreground" Value="{DynamicResource NeoMutedTextBrush}" />
+        <Setter Property="FontSize" Value="11" />
+    </Style>
+
+    <Style Selector="TextBlock.mono-muted">
+        <Setter Property="Foreground" Value="{DynamicResource NeoMutedTextBrush}" />
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="11" />
+    </Style>
+
+    <Style Selector="TextBox.input">
+        <Setter Property="Background" Value="{DynamicResource NeoPanelAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource NeoBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Foreground" Value="{DynamicResource NeoPrimaryTextBrush}" />
+        <Setter Property="Padding" Value="10,8" />
+    </Style>
+
+    <Style Selector="Button.ghost-btn">
+        <Setter Property="Background" Value="{DynamicResource NeoPanelAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource NeoBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Foreground" Value="{DynamicResource NeoPrimaryTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.primary-btn">
+        <Setter Property="Background" Value="#2E2750" />
+        <Setter Property="BorderBrush" Value="#4C3B79" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Foreground" Value="{DynamicResource NeoPrimaryTextBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+</Styles>
