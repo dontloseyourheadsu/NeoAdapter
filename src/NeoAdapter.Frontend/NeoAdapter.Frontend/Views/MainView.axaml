@@ -2,374 +2,69 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:model="using:NeoAdapter.Frontend.Models"
+             xmlns:views="using:NeoAdapter.Frontend.Views"
              xmlns:vm="using:NeoAdapter.Frontend.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             mc:Ignorable="d"
+             d:DesignWidth="1200"
+             d:DesignHeight="860"
              x:Class="NeoAdapter.Frontend.Views.MainView"
-             x:Name="Root"
              x:DataType="vm:MainViewModel">
-  <Design.DataContext>
-    <!-- This only sets the DataContext for the previewer in an IDE,
-    to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-    <vm:MainViewModel />
-  </Design.DataContext>
+    <Grid Background="{DynamicResource NeoBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-  <UserControl.Styles>
-    <Style Selector="Border.panel">
-      <Setter Property="Background" Value="#141220" />
-      <Setter Property="BorderBrush" Value="#2A2440" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="12" />
-    </Style>
-
-    <Style Selector="Border.metric-card">
-      <Setter Property="Background" Value="#141220" />
-      <Setter Property="BorderBrush" Value="#2A2440" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="12" />
-    </Style>
-
-    <Style Selector="TextBlock.muted">
-      <Setter Property="Foreground" Value="#9B93B8" />
-    </Style>
-
-    <Style Selector="TextBlock.nav-label">
-      <Setter Property="Foreground" Value="#6E6788" />
-      <Setter Property="FontSize" Value="10" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-
-    <Style Selector="Border.nav-item">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="10,8" />
-    </Style>
-
-    <Style Selector="Border.nav-item-active">
-      <Setter Property="Background" Value="#2A2243" />
-      <Setter Property="BorderBrush" Value="#4C3B79" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="10,8" />
-    </Style>
-
-    <Style Selector="TextBox.search-box">
-      <Setter Property="Background" Value="#141220" />
-      <Setter Property="BorderBrush" Value="#2A2440" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Foreground" Value="#E8E3F5" />
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="Padding" Value="10,8" />
-      <Setter Property="MinWidth" Value="240" />
-    </Style>
-
-    <Style Selector="Button.ghost-btn">
-      <Setter Property="Background" Value="#141220" />
-      <Setter Property="BorderBrush" Value="#2A2440" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="12,8" />
-      <Setter Property="Foreground" Value="#C9C4D9" />
-      <Setter Property="FontSize" Value="12" />
-    </Style>
-
-    <Style Selector="Border.status-pill">
-      <Setter Property="Background" Value="#201E30" />
-      <Setter Property="CornerRadius" Value="12" />
-      <Setter Property="Padding" Value="8,2" />
-    </Style>
-
-    <Style Selector="Button.connector-btn">
-      <Setter Property="Background" Value="#1A1828" />
-      <Setter Property="BorderBrush" Value="#2A2440" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="Padding" Value="10" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="MinWidth" Value="190" />
-    </Style>
-
-    <Style Selector="Border.connector-badge">
-      <Setter Property="Background" Value="#2A2243" />
-      <Setter Property="BorderBrush" Value="#4C3B79" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="6,3" />
-    </Style>
-  </UserControl.Styles>
-
-  <Grid Background="#0A0910" RowDefinitions="Auto,*" ColumnDefinitions="250,*">
-    <Border Grid.RowSpan="2" Background="#100F1A" BorderBrush="#2A2440" BorderThickness="0,0,1,0">
-      <StackPanel Margin="16" Spacing="8">
-        <Border Background="#1A1828" CornerRadius="10" Padding="12" BorderBrush="#3D365D" BorderThickness="1">
-          <StackPanel>
-            <TextBlock Text="NeoAdapter" FontSize="22" FontWeight="Bold" Foreground="#E8E3F5"/>
-            <TextBlock Text="Job Orchestrator" FontSize="11" Classes="muted"/>
-          </StackPanel>
-        </Border>
-
-        <TextBlock Text="CORE" Classes="nav-label" Margin="4,10,0,0"/>
-        <Border Classes="nav-item-active">
-          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-            <TextBlock Text="◈" Foreground="#C7A6FF"/>
-            <TextBlock Grid.Column="1" Text="Dashboard" Foreground="#C7A6FF" FontWeight="SemiBold"/>
-            <Ellipse Grid.Column="2" Fill="#3DFFC0" Width="6" Height="6" VerticalAlignment="Center"/>
-          </Grid>
-        </Border>
-        <Border Classes="nav-item">
-          <TextBlock Text="◷  Schedule" Classes="muted"/>
-        </Border>
-        <Border Classes="nav-item">
-          <TextBlock Text="◫  Job Library" Classes="muted"/>
-        </Border>
-        <Border Classes="nav-item">
-          <TextBlock Text="⟳  Run History" Classes="muted"/>
-        </Border>
-
-        <TextBlock Text="INTEGRATIONS" Classes="nav-label" Margin="4,10,0,0"/>
-        <Border Classes="nav-item">
-          <TextBlock Text="⊞  Connectors" Classes="muted"/>
-        </Border>
-        <Border Classes="nav-item">
-          <TextBlock Text="⇌  Data Flows" Classes="muted"/>
-        </Border>
-        <Border Classes="nav-item">
-          <TextBlock Text="⚙  Webhooks" Classes="muted"/>
-        </Border>
-
-        <TextBlock Text="SYSTEM" Classes="nav-label" Margin="4,10,0,0"/>
-        <Border Classes="nav-item">
-          <TextBlock Text="◻  Workers" Classes="muted"/>
-        </Border>
-        <Border Classes="nav-item">
-          <TextBlock Text="△  Alerts" Classes="muted"/>
-        </Border>
-        <Border Classes="nav-item">
-          <TextBlock Text="◎  Settings" Classes="muted"/>
-        </Border>
-      </StackPanel>
-    </Border>
-
-    <Border Grid.Column="1" Background="#100F1A" BorderBrush="#2A2440" BorderThickness="0,0,0,1" Padding="20,12">
-      <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-        <StackPanel>
-          <TextBlock Text="Overview" FontSize="20" FontWeight="Bold" Foreground="#E8E3F5"/>
-          <TextBlock Text="/ neoadapter / dashboard" Classes="muted" FontSize="11"/>
-        </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-          <TextBox Classes="search-box" Watermark="Search jobs, runs, integrations..." />
-          <Button Content="Refresh" Command="{Binding RefreshCommand}" Classes="ghost-btn" />
-        </StackPanel>
-      </Grid>
-    </Border>
-
-    <ScrollViewer Grid.Row="1" Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
-      <StackPanel Margin="20" Spacing="16">
-        <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-          <TextBlock Text="{Binding ErrorMessage}" Foreground="#FF5F7E"/>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <TextBlock Text="Updated:" Classes="muted"/>
-            <TextBlock Text="{Binding LastUpdated}" Foreground="#C9C4D9" FontWeight="SemiBold"/>
-          </StackPanel>
-        </Grid>
-
-        <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
-          <Border Classes="metric-card" Padding="14">
-            <StackPanel>
-              <TextBlock Text="TOTAL JOBS" FontSize="11" Classes="muted"/>
-              <TextBlock Text="{Binding TotalJobs}" FontSize="30" FontWeight="Bold" Foreground="#E8E3F5"/>
-            </StackPanel>
-          </Border>
-          <Border Grid.Column="1" Classes="metric-card" Padding="14">
-            <StackPanel>
-              <TextBlock Text="RUNNING NOW" FontSize="11" Classes="muted"/>
-              <TextBlock Text="{Binding ActiveJobs}" FontSize="30" FontWeight="Bold" Foreground="#E8E3F5"/>
-            </StackPanel>
-          </Border>
-          <Border Grid.Column="2" Classes="metric-card" Padding="14">
-            <StackPanel>
-              <TextBlock Text="QUEUED" FontSize="11" Classes="muted"/>
-              <TextBlock Text="{Binding QueuedJobs}" FontSize="30" FontWeight="Bold" Foreground="#E8E3F5"/>
-            </StackPanel>
-          </Border>
-          <Border Grid.Column="3" Classes="metric-card" Padding="14">
-            <StackPanel>
-              <TextBlock Text="FAILED (24H)" FontSize="11" Classes="muted"/>
-              <TextBlock Text="{Binding FailedJobs}" FontSize="30" FontWeight="Bold" Foreground="#E8E3F5"/>
-            </StackPanel>
-          </Border>
-        </Grid>
-
-        <Grid ColumnDefinitions="2*,*" ColumnSpacing="12">
-          <Border Classes="panel" Padding="14">
-            <StackPanel Spacing="10">
-              <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-                <TextBlock Text="Today's Schedule" FontSize="15" FontWeight="SemiBold" Foreground="#E8E3F5"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                  <Button Content="Day" Classes="ghost-btn" />
-                  <Button Content="Week" Classes="ghost-btn" />
-                  <Button Content="Month" Classes="ghost-btn" />
+        <Border IsVisible="{Binding IsAuthenticated}" Background="{DynamicResource NeoHeaderBrush}" BorderBrush="{DynamicResource NeoBorderBrush}" BorderThickness="0,0,0,1" Padding="20,14">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel>
+                    <TextBlock Text="NeoAdapter" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                    <TextBlock Text="Connectors, integration jobs, and live runs" Classes="muted" />
                 </StackPanel>
-              </Grid>
-
-              <ItemsControl ItemsSource="{Binding Schedule}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Grid ColumnDefinitions="70,*" Margin="0,4,0,4">
-                      <TextBlock Text="{Binding TimeLabel}" Classes="muted" VerticalAlignment="Center"/>
-                      <Border Grid.Column="1" Background="#1A1828" CornerRadius="8" Padding="8" BorderBrush="#2A2440" BorderThickness="1">
-                        <Grid ColumnDefinitions="6,*,Auto" ColumnSpacing="8">
-                          <Border Background="{Binding ColorHex}" CornerRadius="3"/>
-                          <TextBlock Grid.Column="1" Text="{Binding JobName}" Foreground="#E8E3F5" VerticalAlignment="Center"/>
-                          <TextBlock Grid.Column="2" Text="{Binding DurationLabel}" Foreground="#C9C4D9" VerticalAlignment="Center"/>
-                        </Grid>
-                      </Border>
-                    </Grid>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-          </Border>
-
-          <Border Grid.Column="1" Classes="panel" Padding="14">
-            <StackPanel Spacing="10">
-              <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-                <TextBlock Text="Active Jobs" FontSize="15" FontWeight="SemiBold" Foreground="#E8E3F5"/>
-                <Button Grid.Column="1" Content="View all" Classes="ghost-btn" />
-              </Grid>
-
-              <ItemsControl ItemsSource="{Binding ActiveJobsList}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Border Background="#1A1828" CornerRadius="8" BorderBrush="#2A2440" BorderThickness="1" Padding="10" Margin="0,2,0,2">
-                      <Grid ColumnDefinitions="10,*,Auto" ColumnSpacing="10">
-                        <Ellipse Fill="{Binding ColorHex}" Width="10" Height="10" VerticalAlignment="Center"/>
-                        <StackPanel Grid.Column="1">
-                          <TextBlock Text="{Binding Name}" Foreground="#E8E3F5" FontWeight="SemiBold"/>
-                          <TextBlock Text="{Binding Meta}" Classes="muted" FontSize="11"/>
-                        </StackPanel>
-                        <Border Grid.Column="2" Classes="status-pill" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding Status}" Foreground="{Binding ColorHex}" FontSize="11" FontWeight="SemiBold"/>
-                        </Border>
-                      </Grid>
-                    </Border>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-          </Border>
-        </Grid>
-
-        <Border Classes="panel" Padding="14">
-          <StackPanel Spacing="12">
-            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-              <StackPanel>
-                <TextBlock Text="Job Pipeline Editor" FontSize="15" FontWeight="SemiBold" Foreground="#E8E3F5"/>
-                <TextBlock Text="Quick connector selector" Classes="muted" FontSize="11"/>
-              </StackPanel>
-              <Button Grid.Column="1" Content="Swap Source/Destination" Classes="ghost-btn" Command="{Binding SwapConnectorsCommand}" />
-            </Grid>
-
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
-              <Border Background="#1A1828" CornerRadius="10" BorderBrush="#2A2440" BorderThickness="1" Padding="12">
-                <StackPanel Spacing="10">
-                  <TextBlock Text="Source Connector" FontSize="12" FontWeight="SemiBold" Foreground="#E8E3F5"/>
-                  <Border Classes="connector-badge" HorizontalAlignment="Left">
-                    <TextBlock Text="{Binding SourceConnectorLabel}" Foreground="#C7A6FF" FontWeight="SemiBold" FontSize="11"/>
-                  </Border>
-
-                  <ItemsControl ItemsSource="{Binding ConnectorOptions}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal" ItemWidth="200" />
-                      </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="model:ConnectorOption">
-                        <Button Classes="connector-btn"
-                                Command="{Binding #Root.DataContext.SetSourceConnectorCommand}"
-                                CommandParameter="{Binding Type}"
-                                Margin="0,0,8,8">
-                          <StackPanel Spacing="4">
-                            <TextBlock Text="{Binding DisplayName}" Foreground="#E8E3F5" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding Description}" Classes="muted" FontSize="11" TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding BadgeText}" Foreground="#C7A6FF" FontSize="10" FontWeight="SemiBold"/>
-                          </StackPanel>
-                        </Button>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="User:" Classes="muted" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding CurrentUsername}" Foreground="{DynamicResource NeoPrimaryTextBrush}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock Text="Updated:" Classes="muted" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding LastUpdated}" Foreground="{DynamicResource NeoPrimaryTextBrush}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Content="Refresh" Command="{Binding RefreshCommand}" Classes="ghost-btn" />
+                    <Button Content="Logout" Command="{Binding LogoutCommand}" Classes="ghost-btn" />
                 </StackPanel>
-              </Border>
-
-              <Border Grid.Column="1" Background="#1A1828" CornerRadius="10" BorderBrush="#2A2440" BorderThickness="1" Padding="12">
-                <StackPanel Spacing="10">
-                  <TextBlock Text="Destination Connector" FontSize="12" FontWeight="SemiBold" Foreground="#E8E3F5"/>
-                  <Border Classes="connector-badge" HorizontalAlignment="Left">
-                    <TextBlock Text="{Binding DestinationConnectorLabel}" Foreground="#C7A6FF" FontWeight="SemiBold" FontSize="11"/>
-                  </Border>
-
-                  <ItemsControl ItemsSource="{Binding ConnectorOptions}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal" ItemWidth="200" />
-                      </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="model:ConnectorOption">
-                        <Button Classes="connector-btn"
-                                Command="{Binding #Root.DataContext.SetDestinationConnectorCommand}"
-                                CommandParameter="{Binding Type}"
-                                Margin="0,0,8,8">
-                          <StackPanel Spacing="4">
-                            <TextBlock Text="{Binding DisplayName}" Foreground="#E8E3F5" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding Description}" Classes="muted" FontSize="11" TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding BadgeText}" Foreground="#C7A6FF" FontSize="10" FontWeight="SemiBold"/>
-                          </StackPanel>
-                        </Button>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </Border>
             </Grid>
-
-            <Border Background="#100F1A" BorderBrush="#2A2440" BorderThickness="1" CornerRadius="10" Padding="10">
-              <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <TextBlock Text="Pipeline Preview:" Classes="muted" FontSize="11"/>
-                <TextBlock Text="{Binding PipelineStatus}" Foreground="#E8E3F5" FontWeight="SemiBold"/>
-              </StackPanel>
-            </Border>
-          </StackPanel>
         </Border>
 
-        <Border Classes="panel" Padding="14">
-          <StackPanel Spacing="10">
-            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-              <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <TextBlock Text="Live Log Stream" FontSize="15" FontWeight="SemiBold" Foreground="#E8E3F5"/>
-                <Border Background="#10271F" BorderBrush="#1E5A47" BorderThickness="1" CornerRadius="12" Padding="7,1">
-                  <TextBlock Text="LIVE" Foreground="#3DFFC0" FontSize="10" FontWeight="SemiBold"/>
-                </Border>
-              </StackPanel>
-              <Button Grid.Column="1" Content="Simulate Event" Classes="ghost-btn" />
-            </Grid>
+        <Border IsVisible="{Binding IsNotAuthenticated}" Grid.RowSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Width="420" Classes="panel" Padding="22">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Sign In" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                <TextBlock Text="Use username and password to access NeoAdapter." Classes="muted"/>
+                <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource NeoDangerBrush}" />
 
-            <ItemsControl ItemsSource="{Binding Logs}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <Grid ColumnDefinitions="110,56,*" ColumnSpacing="8" Margin="0,2,0,2">
-                    <TextBlock Text="{Binding TimestampUtc.LocalDateTime, StringFormat='{}{0:HH:mm:ss}'}" Classes="muted" FontFamily="Consolas"/>
-                    <TextBlock Grid.Column="1" Text="{Binding Level}" Foreground="#C7A6FF" FontFamily="Consolas"/>
-                    <TextBlock Grid.Column="2" Text="{Binding Message}" Foreground="#C9C4D9"/>
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
+                <TextBox Watermark="Username" Text="{Binding LoginUsername}" Classes="input" />
+                <TextBox Watermark="Password" PasswordChar="*" Text="{Binding LoginPassword}" Classes="input" />
+
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <Button Content="Login" Command="{Binding LoginCommand}" Classes="primary-btn" />
+                    <Button Grid.Column="1" Content="Register" Command="{Binding RegisterCommand}" Classes="ghost-btn" />
+                </Grid>
+            </StackPanel>
         </Border>
-      </StackPanel>
-    </ScrollViewer>
-  </Grid>
+
+        <TabControl IsVisible="{Binding IsAuthenticated}" Grid.Row="1" Margin="16" SelectedIndex="{Binding SelectedTabIndex}">
+            <TabItem Header="Dashboard">
+                <views:DashboardView DataContext="{Binding}" />
+            </TabItem>
+            <TabItem Header="Connectors and Jobs">
+                <views:IntegrationsView DataContext="{Binding}" />
+            </TabItem>
+        </TabControl>
+
+        <!-- keeps design-time layout stable when authenticated header is hidden -->
+        <Border IsVisible="False" Background="{DynamicResource NeoHeaderBrush}" BorderBrush="{DynamicResource NeoBorderBrush}" BorderThickness="0,0,0,1" Padding="20,14">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel>
+                    <TextBlock Text="NeoAdapter" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                    <TextBlock Text="Connectors, integration jobs, and live runs" Classes="muted" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
 </UserControl>

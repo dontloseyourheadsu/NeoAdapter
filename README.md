@@ -24,6 +24,17 @@ Default local URLs are configured in `src/NeoAdapter.Api/Properties/launchSettin
 - `https://localhost:7277`
 - `http://localhost:5193`
 
+## Development Authentication
+
+The API uses local username/password authentication with JWT bearer tokens.
+
+On startup, if the `user_accounts` table is empty, a default development account is created:
+
+- Username: `admin`
+- Password: `Admin123!`
+
+If at least one user already exists, no default user is created.
+
 ## Run Avalonia Desktop
 
 From repository root:
@@ -49,8 +60,9 @@ dotnet run --project src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/NeoAdap
 
 Default browser host URLs are configured in `src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/Properties/launchSettings.json`:
 
-- `https://localhost:7169`
 - `http://localhost:5235`
+
+Use `http://localhost:5235` for local development.
 
 ## Run Avalonia Android
 
@@ -69,4 +81,32 @@ From repository root:
 
 ```bash
 dotnet build NeoAdapter.slnx
+```
+
+## Docker Compose
+
+Run API + Browser Frontend + PostgreSQL together:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- Frontend (browser host): `http://localhost:5235`
+- API: `http://localhost:5193`
+- PostgreSQL: `localhost:5432`
+
+Stop and remove containers:
+
+```bash
+docker compose down
+```
+
+View logs:
+
+```bash
+docker compose logs -f api
+docker compose logs -f frontend-browser
+docker compose logs -f postgres
 ```

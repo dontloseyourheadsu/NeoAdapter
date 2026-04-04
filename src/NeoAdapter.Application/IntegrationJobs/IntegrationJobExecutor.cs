@@ -5,11 +5,13 @@ using CsvHelper.Configuration;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using NeoAdapter.Application.Database.Contexts;
-using NeoAdapter.Contracts.Connectors;
+using NeoAdapter.Application.Security;
 
 namespace NeoAdapter.Application.IntegrationJobs;
 
-public sealed class IntegrationJobExecutor(NeoAdapterDbContext dbContext) : IIntegrationJobExecutor
+public sealed class IntegrationJobExecutor(
+    NeoAdapterDbContext dbContext,
+    ISqlSecretProtector sqlSecretProtector) : IIntegrationJobExecutor
 {
     public async Task ExecuteAsync(Guid integrationJobId)
     {
@@ -52,11 +54,11 @@ public sealed class IntegrationJobExecutor(NeoAdapterDbContext dbContext) : IInt
             var destination = job.DestinationConnector ?? throw new InvalidOperationException("Destination connector is missing.");
 
             int processed;
-            if (source.Type == ConnectorType.Sql && destination.Type == ConnectorType.Csv)
+            if (source.Type == Domain.ConnectorType.Sql && destination.Type == Domain.ConnectorType.Csv)
             {
                 processed = await ExecuteSqlToCsvAsync(source, destination);
             }
-            else if (source.Type == ConnectorType.Csv && destination.Type == ConnectorType.Sql)
+            else if (source.Type == Domain.ConnectorType.Csv && destination.Type == Domain.ConnectorType.Sql)
             {
                 processed = await ExecuteCsvToSqlAsync(source, destination);
             }
@@ -81,7 +83,7 @@ public sealed class IntegrationJobExecutor(NeoAdapterDbContext dbContext) : IInt
         }
     }
 
-    private static async Task<int> ExecuteSqlToCsvAsync(Domain.Connector sqlConnector, Domain.Connector csvConnector)
+    private async Task<int> ExecuteSqlToCsvAsync(Domain.Connector sqlConnector, Domain.Connector csvConnector)
     {
         var csvPath = csvConnector.CsvPath;
         if (string.IsNullOrWhiteSpace(csvPath))
@@ -131,7 +133,7 @@ public sealed class IntegrationJobExecutor(NeoAdapterDbContext dbContext) : IInt
         return count;
     }
 
-    private static async Task<int> ExecuteCsvToSqlAsync(Domain.Connector csvConnector, Domain.Connector sqlConnector)
+    private async Task<int> ExecuteCsvToSqlAsync(Domain.Connector csvConnector, Domain.Connector sqlConnector)
     {
         var csvPath = csvConnector.CsvPath;
         if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
@@ -145,7 +147,7 @@ public sealed class IntegrationJobExecutor(NeoAdapterDbContext dbContext) : IInt
         var table = sqlConnector.SqlTable ?? throw new InvalidOperationException("SQL destination table is required.");
         var delimiter = string.IsNullOrEmpty(csvConnector.CsvDelimiter) ? "," : csvConnector.CsvDelimiter;
 
-        await using var streamReader = new StreamReader(csvPath);
+        using var streamReader = new StreamReader(csvPath);
         using var csvReader = new CsvReader(streamReader, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
         {
             Delimiter = delimiter,
@@ -187,9 +189,9 @@ public sealed class IntegrationJobExecutor(NeoAdapterDbContext dbContext) : IInt
         return inserted;
     }
 
-    private static string BuildSqlConnectionString(Domain.Connector connector)
+    private string BuildSqlConnectionString(Domain.Connector connector)
     {
-        if (connector.Type != ConnectorType.Sql)
+        if (connector.Type != Domain.ConnectorType.Sql)
         {
             throw new InvalidOperationException("Expected SQL connector.");
         }
@@ -199,7 +201,7 @@ public sealed class IntegrationJobExecutor(NeoAdapterDbContext dbContext) : IInt
             DataSource = $"{connector.SqlServer},{connector.SqlPort ?? 1433}",
             InitialCatalog = connector.SqlDatabase,
             UserID = connector.SqlUsername,
-            Password = connector.SqlPassword,
+            Password = sqlSecretProtector.Unprotect(connector.SqlPassword ?? string.Empty),
             Encrypt = true,
             TrustServerCertificate = connector.SqlTrustServerCertificate,
             IntegratedSecurity = false,

@@ -12,6 +12,8 @@ public sealed class IntegrationJob
 
     public bool IsEnabled { get; set; }
 
+    public string? CronExpression { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }

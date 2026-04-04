@@ -1,11 +1,17 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using NeoAdapter.Application.Database.Contexts;
+using NeoAdapter.Application.Security;
 using NeoAdapter.Contracts.Connectors;
 using NeoAdapter.Domain;
+using ConnectorTypeContract = NeoAdapter.Contracts.Connectors.ConnectorType;
+using ConnectorTypeDomain = NeoAdapter.Domain.ConnectorType;
 
 namespace NeoAdapter.Application.Connectors;
 
-public sealed class ConnectorService(NeoAdapterDbContext dbContext) : IConnectorService
+public sealed class ConnectorService(
+    NeoAdapterDbContext dbContext,
+    ISqlSecretProtector sqlSecretProtector) : IConnectorService
 {
     public async Task<IReadOnlyList<ConnectorDto>> GetAllAsync(CancellationToken cancellationToken)
     {
@@ -38,14 +44,14 @@ public sealed class ConnectorService(NeoAdapterDbContext dbContext) : IConnector
         {
             Id = Guid.NewGuid(),
             Name = trimmedName,
-            Type = request.Type,
+            Type = request.Type == ConnectorTypeContract.Sql ? ConnectorTypeDomain.Sql : ConnectorTypeDomain.Csv,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
 
         switch (request.Type)
         {
-            case ConnectorType.Sql:
+            case ConnectorTypeContract.Sql:
                 if (request.Sql is null)
                 {
                     throw new InvalidOperationException("SQL connector settings are required.");
@@ -56,12 +62,12 @@ public sealed class ConnectorService(NeoAdapterDbContext dbContext) : IConnector
                 connector.SqlPort = request.Sql.Port;
                 connector.SqlDatabase = request.Sql.Database.Trim();
                 connector.SqlUsername = request.Sql.Username.Trim();
-                connector.SqlPassword = request.Sql.Password;
+                connector.SqlPassword = sqlSecretProtector.Protect(request.Sql.Password);
                 connector.SqlTable = request.Sql.Table.Trim();
                 connector.SqlTrustServerCertificate = request.Sql.TrustServerCertificate;
                 break;
 
-            case ConnectorType.Csv:
+            case ConnectorTypeContract.Csv:
                 if (request.Csv is null)
                 {
                     throw new InvalidOperationException("CSV connector settings are required.");
@@ -81,7 +87,56 @@ public sealed class ConnectorService(NeoAdapterDbContext dbContext) : IConnector
         return MapToDto(connector);
     }
 
-    private static void ValidateSqlSettings(SqlConnectorSettingsDto sql)
+    public async Task<TestConnectorResponse> TestAsync(TestConnectorRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        switch (request.Type)
+        {
+            case ConnectorTypeContract.Sql:
+                if (request.Sql is null)
+                {
+                    throw new InvalidOperationException("SQL connector settings are required.");
+                }
+
+                ValidateSqlSettings(request.Sql);
+                await using (var connection = new SqlConnection(BuildSqlConnectionString(request.Sql)))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    await using var command = connection.CreateCommand();
+                    command.CommandText = "SELECT 1";
+                    await command.ExecuteScalarAsync(cancellationToken);
+                }
+
+                return new TestConnectorResponse(true, "SQL connection test succeeded.", DateTimeOffset.UtcNow);
+
+            case ConnectorTypeContract.Csv:
+                if (request.Csv is null)
+                {
+                    throw new InvalidOperationException("CSV connector settings are required.");
+                }
+
+                ValidateCsvSettings(request.Csv);
+                var path = request.Csv.Path.Trim();
+                var directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                await using (var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite))
+                {
+                    await stream.FlushAsync(cancellationToken);
+                }
+
+                return new TestConnectorResponse(true, "CSV path test succeeded.", DateTimeOffset.UtcNow);
+
+            default:
+                throw new InvalidOperationException("Unsupported connector type.");
+        }
+    }
+
+    private static void ValidateSqlSettings(SqlConnectorSettingsInputDto sql)
     {
         if (string.IsNullOrWhiteSpace(sql.Server)
             || string.IsNullOrWhiteSpace(sql.Database)
@@ -116,7 +171,7 @@ public sealed class ConnectorService(NeoAdapterDbContext dbContext) : IConnector
         SqlConnectorSettingsDto? sql = null;
         CsvConnectorSettingsDto? csv = null;
 
-        if (connector.Type == ConnectorType.Sql)
+        if (connector.Type == ConnectorTypeDomain.Sql)
         {
             sql = new SqlConnectorSettingsDto(
                 connector.SqlServer ?? string.Empty,
@@ -127,7 +182,7 @@ public sealed class ConnectorService(NeoAdapterDbContext dbContext) : IConnector
                 connector.SqlTrustServerCertificate);
         }
 
-        if (connector.Type == ConnectorType.Csv)
+        if (connector.Type == ConnectorTypeDomain.Csv)
         {
             csv = new CsvConnectorSettingsDto(
                 connector.CsvPath ?? string.Empty,
@@ -137,10 +192,27 @@ public sealed class ConnectorService(NeoAdapterDbContext dbContext) : IConnector
         return new ConnectorDto(
             connector.Id,
             connector.Name,
-            connector.Type,
+            connector.Type == ConnectorTypeDomain.Sql ? ConnectorTypeContract.Sql : ConnectorTypeContract.Csv,
             sql,
             csv,
             connector.CreatedAtUtc,
             connector.UpdatedAtUtc);
+    }
+
+    private static string BuildSqlConnectionString(SqlConnectorSettingsInputDto sql)
+    {
+        var builder = new SqlConnectionStringBuilder
+        {
+            DataSource = $"{sql.Server},{sql.Port}",
+            InitialCatalog = sql.Database,
+            UserID = sql.Username,
+            Password = sql.Password,
+            Encrypt = true,
+            TrustServerCertificate = sql.TrustServerCertificate,
+            IntegratedSecurity = false,
+            ConnectTimeout = 20
+        };
+
+        return builder.ConnectionString;
     }
 }

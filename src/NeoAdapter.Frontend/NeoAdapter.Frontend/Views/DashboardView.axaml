@@ -1,0 +1,94 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:dashboard="using:NeoAdapter.Contracts.Dashboard"
+             xmlns:vm="using:NeoAdapter.Frontend.ViewModels"
+             mc:Ignorable="d"
+             d:DesignWidth="1200"
+             d:DesignHeight="820"
+             x:Class="NeoAdapter.Frontend.Views.DashboardView"
+             x:DataType="vm:MainViewModel">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="14">
+            <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource NeoDangerBrush}" />
+            <TextBlock Text="{Binding StatusMessage}" Foreground="{DynamicResource NeoAccentBrush}" />
+
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
+                <Border Classes="metric-card" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="TOTAL JOBS" Classes="muted" />
+                        <TextBlock Text="{Binding TotalJobs}" FontSize="30" FontWeight="Bold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Classes="metric-card" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="ENABLED" Classes="muted" />
+                        <TextBlock Text="{Binding EnabledJobs}" FontSize="30" FontWeight="Bold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Classes="metric-card" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="FAILED (24H)" Classes="muted" />
+                        <TextBlock Text="{Binding FailedRunsLast24Hours}" FontSize="30" FontWeight="Bold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="3" Classes="metric-card" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="CONNECTORS" Classes="muted" />
+                        <TextBlock Text="{Binding TotalConnectors}" FontSize="30" FontWeight="Bold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid ColumnDefinitions="2*,*" ColumnSpacing="12">
+                <Border Classes="panel" Padding="12">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Integration Jobs" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <ItemsControl ItemsSource="{Binding DashboardJobs}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="dashboard:DashboardJobSummaryItem">
+                                    <Border Classes="list-row">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource NeoPrimaryTextBrush}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Direction}" Classes="muted" />
+                                                <TextBlock Text="{Binding LastRunMessage}" Classes="muted" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                                <TextBlock Text="{Binding Status}" Foreground="{DynamicResource NeoAccentBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                <TextBlock Text="{Binding LastRunAtUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss}'}" Classes="muted" HorizontalAlignment="Right" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Classes="panel" Padding="12">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Recent Runs" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <ItemsControl ItemsSource="{Binding DashboardRuns}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="dashboard:DashboardRunItem">
+                                    <Border Classes="list-row">
+                                        <Grid ColumnDefinitions="110,56,*" ColumnSpacing="8">
+                                            <TextBlock Text="{Binding TimestampUtc.LocalDateTime, StringFormat='{}{0:HH:mm:ss}'}" Classes="mono-muted" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Level}" Foreground="{DynamicResource NeoAccentBrush}" Classes="mono-muted" />
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="{Binding JobName}" Foreground="{DynamicResource NeoPrimaryTextBrush}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Message}" Classes="muted" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,7 +1,6 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using NeoAdapter.Application.Database.Contexts;
-using NeoAdapter.Contracts.Connectors;
 using NeoAdapter.Contracts.IntegrationJobs;
 using NeoAdapter.Domain;
 
@@ -9,7 +8,8 @@ namespace NeoAdapter.Application.IntegrationJobs;
 
 public sealed class IntegrationJobService(
     NeoAdapterDbContext dbContext,
-    IBackgroundJobClient backgroundJobClient) : IIntegrationJobService
+    IBackgroundJobClient backgroundJobClient,
+    IIntegrationJobScheduler integrationJobScheduler) : IIntegrationJobService
 {
     public async Task<IReadOnlyList<IntegrationJobDto>> GetAllAsync(CancellationToken cancellationToken)
     {
@@ -61,6 +61,10 @@ public sealed class IntegrationJobService(
         }
 
         var now = DateTimeOffset.UtcNow;
+        var cronExpression = string.IsNullOrWhiteSpace(request.CronExpression)
+            ? null
+            : request.CronExpression.Trim();
+
         var job = new IntegrationJob
         {
             Id = Guid.NewGuid(),
@@ -68,6 +72,7 @@ public sealed class IntegrationJobService(
             SourceConnectorId = source.Id,
             DestinationConnectorId = destination.Id,
             IsEnabled = request.IsEnabled,
+            CronExpression = cronExpression,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
             SourceConnector = source,
@@ -76,6 +81,7 @@ public sealed class IntegrationJobService(
 
         dbContext.IntegrationJobs.Add(job);
         await dbContext.SaveChangesAsync(cancellationToken);
+        integrationJobScheduler.SyncJob(job.Id, job.IsEnabled, job.CronExpression);
         return MapToDto(job, null);
     }
 
@@ -131,6 +137,7 @@ public sealed class IntegrationJobService(
             destinationName,
             $"{sourceName} -> {destinationName}",
             job.IsEnabled,
+            job.CronExpression,
             job.CreatedAtUtc,
             job.UpdatedAtUtc,
             latestRun?.StartedAtUtc,

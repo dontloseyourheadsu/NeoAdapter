@@ -5,7 +5,7 @@ using NeoAdapter.Contracts.IntegrationJobs;
 
 namespace NeoAdapter.Api.Controllers;
 
-[AllowAnonymous]
+[Authorize]
 [ApiController]
 [Route("api/integration-jobs")]
 public sealed class IntegrationJobsController(IIntegrationJobService integrationJobService) : ControllerBase

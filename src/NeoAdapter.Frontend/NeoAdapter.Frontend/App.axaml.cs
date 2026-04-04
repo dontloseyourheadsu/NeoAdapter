@@ -4,7 +4,9 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
 using System.Linq;
+using System.Net.Http.Headers;
 using System.Net.Http;
+using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using NeoAdapter.Frontend.Services;
 using NeoAdapter.Frontend.ViewModels;
@@ -23,29 +25,44 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        try
         {
-            // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
-            // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
-            DisableAvaloniaDataAnnotationValidation();
-
-            _mainViewModel = BuildMainViewModel();
-
-            desktop.MainWindow = new MainWindow
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                DataContext = _mainViewModel
-            };
+                // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
+                // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
+                DisableAvaloniaDataAnnotationValidation();
 
-            desktop.Exit += (_, _) => _mainViewModel.Dispose();
+                _mainViewModel = BuildMainViewModel();
+
+                desktop.MainWindow = new MainWindow
+                {
+                    DataContext = _mainViewModel
+                };
+
+                desktop.Exit += (_, _) => _mainViewModel.Dispose();
+            }
+            else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
+            {
+                _mainViewModel = BuildMainViewModel();
+
+                singleViewPlatform.MainView = new MainView
+                {
+                    DataContext = _mainViewModel
+                };
+            }
         }
-        else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
+        catch (Exception ex)
         {
-            _mainViewModel = BuildMainViewModel();
-
-            singleViewPlatform.MainView = new MainView
+            if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
             {
-                DataContext = _mainViewModel
-            };
+                singleViewPlatform.MainView = new TextBlock
+                {
+                    Text = $"Startup failed: {ex.Message}",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    Margin = new Thickness(12)
+                };
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -78,9 +95,12 @@ public partial class App : Application
         {
             BaseAddress = new Uri(baseUrl)
         };
+        httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+        var authApiClient = new AuthApiClient(httpClient);
         var dashboardApiClient = new DashboardApiClient(httpClient);
-        var pipelineEditorApiClient = new PipelineEditorApiClient(httpClient);
-        return new MainViewModel(dashboardApiClient, pipelineEditorApiClient);
+        var connectorApiClient = new ConnectorApiClient(httpClient);
+        var integrationJobsApiClient = new IntegrationJobsApiClient(httpClient);
+        return new MainViewModel(httpClient, authApiClient, dashboardApiClient, connectorApiClient, integrationJobsApiClient);
     }
 }

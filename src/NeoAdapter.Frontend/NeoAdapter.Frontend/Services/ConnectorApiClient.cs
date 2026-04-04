@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -29,5 +30,16 @@ public sealed class ConnectorApiClient(HttpClient httpClient)
         }
 
         return await response.Content.ReadFromJsonAsync<ConnectorDto>(JsonOptions, cancellationToken);
+    }
+
+    public async Task<TestConnectorResponse?> TestAsync(TestConnectorRequest request, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.PostAsJsonAsync("api/connectors/test", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<TestConnectorResponse>(JsonOptions, cancellationToken);
     }
 }

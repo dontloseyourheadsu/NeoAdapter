@@ -7,4 +7,6 @@ public interface IConnectorService
     Task<IReadOnlyList<ConnectorDto>> GetAllAsync(CancellationToken cancellationToken);
 
     Task<ConnectorDto> CreateAsync(CreateConnectorRequest request, CancellationToken cancellationToken);
+
+    Task<TestConnectorResponse> TestAsync(TestConnectorRequest request, CancellationToken cancellationToken);
 }

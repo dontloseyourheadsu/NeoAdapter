@@ -1,0 +1,128 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:connectors="using:NeoAdapter.Contracts.Connectors"
+             xmlns:jobs="using:NeoAdapter.Contracts.IntegrationJobs"
+             xmlns:vm="using:NeoAdapter.Frontend.ViewModels"
+             mc:Ignorable="d"
+             d:DesignWidth="1200"
+             d:DesignHeight="820"
+             x:Name="IntegrationsRoot"
+             x:Class="NeoAdapter.Frontend.Views.IntegrationsView"
+             x:DataType="vm:MainViewModel">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="14">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <Border Classes="panel" Padding="12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Create Connector" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <TextBox Watermark="Connector name" Text="{Binding NewConnectorName}" Classes="input" />
+                        <ComboBox ItemsSource="{Binding ConnectorTypes}" SelectedItem="{Binding NewConnectorType}" />
+
+                        <StackPanel IsVisible="{Binding IsSqlConnectorSelected}" Spacing="8">
+                            <TextBlock Text="SQL Settings" Classes="muted" />
+                            <TextBox Watermark="Server" Text="{Binding SqlServer}" Classes="input" />
+                            <TextBox Watermark="Port" Text="{Binding SqlPort}" Classes="input" />
+                            <TextBox Watermark="Database" Text="{Binding SqlDatabase}" Classes="input" />
+                            <TextBox Watermark="Username" Text="{Binding SqlUsername}" Classes="input" />
+                            <TextBox Watermark="Password" PasswordChar="*" Text="{Binding SqlPassword}" Classes="input" />
+                            <TextBox Watermark="Table (e.g., dbo.Customers)" Text="{Binding SqlTable}" Classes="input" />
+                            <CheckBox Content="Trust Server Certificate" IsChecked="{Binding SqlTrustServerCertificate}" />
+                        </StackPanel>
+
+                        <StackPanel IsVisible="{Binding IsCsvConnectorSelected}" Spacing="8">
+                            <TextBlock Text="CSV Settings" Classes="muted" />
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox Text="{Binding CsvPath}" Watermark="CSV path" Classes="input" />
+                                <Button Grid.Column="1" Content="Browse" Classes="ghost-btn" Click="OnBrowseCsvClicked" />
+                            </Grid>
+                            <TextBox Watermark="Delimiter" Text="{Binding CsvDelimiter}" Classes="input" />
+                        </StackPanel>
+
+                        <Button Content="Test Connector" Classes="ghost-btn" Command="{Binding TestConnectorCommand}" />
+                        <Button Content="Create Connector" Classes="primary-btn" Command="{Binding CreateConnectorCommand}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Classes="panel" Padding="12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Create Integration Job" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <TextBox Watermark="Job name" Text="{Binding NewIntegrationJobName}" Classes="input" />
+                        <TextBox Watermark="Cron expression (optional, e.g. */15 * * * *)" Text="{Binding NewIntegrationJobCronExpression}" Classes="input" />
+
+                        <TextBlock Text="Source connector" Classes="muted" />
+                        <ComboBox ItemsSource="{Binding Connectors}" SelectedItem="{Binding SelectedSourceConnector}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="connectors:ConnectorDto">
+                                    <TextBlock Text="{Binding Name}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBlock Text="Destination connector" Classes="muted" />
+                        <ComboBox ItemsSource="{Binding Connectors}" SelectedItem="{Binding SelectedDestinationConnector}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="connectors:ConnectorDto">
+                                    <TextBlock Text="{Binding Name}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <CheckBox Content="Enabled" IsChecked="{Binding NewIntegrationJobEnabled}" />
+                        <Button Content="Create Integration Job" Classes="primary-btn" Command="{Binding CreateIntegrationJobCommand}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <Border Classes="panel" Padding="12">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Connectors" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <ItemsControl ItemsSource="{Binding Connectors}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="connectors:ConnectorDto">
+                                    <Border Classes="list-row">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource NeoPrimaryTextBrush}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Type}" Classes="muted" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Classes="panel" Padding="12">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Integration Jobs" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <ItemsControl ItemsSource="{Binding IntegrationJobs}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="jobs:IntegrationJobDto">
+                                    <Border Classes="list-row">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource NeoPrimaryTextBrush}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding DirectionLabel}" Classes="muted" />
+                                                <TextBlock Text="{Binding CronExpression}" Classes="muted" />
+                                                <TextBlock Text="{Binding LastRunStatus}" Classes="muted" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1"
+                                                    Content="Run now"
+                                                    Classes="ghost-btn"
+                                                    Command="{Binding #IntegrationsRoot.DataContext.RunIntegrationJobCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

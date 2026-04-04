@@ -1,13 +1,16 @@
 using Microsoft.EntityFrameworkCore;
 using NeoAdapter.Application.Database.Contexts;
-using NeoAdapter.Contracts.Connectors;
+using NeoAdapter.Application.Security;
 using NeoAdapter.Domain;
 
 namespace NeoAdapter.Application.Database;
 
 public static class NeoAdapterSeedData
 {
-    public static async Task SeedAsync(NeoAdapterDbContext dbContext, CancellationToken cancellationToken)
+    public static async Task SeedAsync(
+        NeoAdapterDbContext dbContext,
+        ISqlSecretProtector sqlSecretProtector,
+        CancellationToken cancellationToken)
     {
         if (await dbContext.Connectors.AnyAsync(cancellationToken)
             || await dbContext.IntegrationJobs.AnyAsync(cancellationToken))
@@ -25,7 +28,7 @@ public static class NeoAdapterSeedData
             SqlPort = 1433,
             SqlDatabase = "sampledb",
             SqlUsername = "sa",
-            SqlPassword = "ChangeMe!123",
+            SqlPassword = sqlSecretProtector.Protect("ChangeMe!123"),
             SqlTable = "dbo.SourceTable",
             SqlTrustServerCertificate = true,
             CreatedAtUtc = now,
@@ -63,7 +66,7 @@ public static class NeoAdapterSeedData
             SqlPort = 1433,
             SqlDatabase = "sampledb",
             SqlUsername = "sa",
-            SqlPassword = "ChangeMe!123",
+            SqlPassword = sqlSecretProtector.Protect("ChangeMe!123"),
             SqlTable = "dbo.TargetTable",
             SqlTrustServerCertificate = true,
             CreatedAtUtc = now,
@@ -80,6 +83,7 @@ public static class NeoAdapterSeedData
                 SourceConnectorId = sqlSource.Id,
                 DestinationConnectorId = csvTarget.Id,
                 IsEnabled = true,
+                CronExpression = null,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             },
@@ -90,6 +94,7 @@ public static class NeoAdapterSeedData
                 SourceConnectorId = csvSource.Id,
                 DestinationConnectorId = sqlTarget.Id,
                 IsEnabled = true,
+                CronExpression = null,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             });

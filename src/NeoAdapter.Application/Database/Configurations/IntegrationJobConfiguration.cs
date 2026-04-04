@@ -33,6 +33,10 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
             .HasColumnName("is_enabled")
             .IsRequired();
 
+        builder.Property(job => job.CronExpression)
+            .HasColumnName("cron_expression")
+            .HasMaxLength(120);
+
         builder.Property(job => job.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .HasColumnType("timestamp with time zone")

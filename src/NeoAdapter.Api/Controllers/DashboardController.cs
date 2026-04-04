@@ -5,7 +5,7 @@ using NeoAdapter.Contracts.Dashboard;
 
 namespace NeoAdapter.Api.Controllers;
 
-[AllowAnonymous]
+[Authorize]
 [ApiController]
 [Route("api/dashboard")]
 public sealed class DashboardController(IDashboardService dashboardService) : ControllerBase
