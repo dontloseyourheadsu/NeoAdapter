@@ -31,6 +31,7 @@ services:
       Jwt__Audience: NeoAdapter.Client
       Jwt__Key: DevOnly_ChangeThisJwtKey_ToSomethingLongAndRandom
       Jwt__ExpiresMinutes: 120
+    restart: unless-stopped
     ports:
       - "5193:8080"
 
@@ -44,8 +45,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       NEOADAPTER_API_BASE_URL: http://localhost:5193/
+    restart: unless-stopped
     ports:
-      - "5235:8080"
+      - "5235:80"
 
 volumes:
   neoadapter_postgres_data:
