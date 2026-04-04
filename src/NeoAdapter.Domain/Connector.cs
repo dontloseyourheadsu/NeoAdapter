@@ -1,5 +1,3 @@
-using NeoAdapter.Contracts.Connectors;
-
 namespace NeoAdapter.Domain;
 
 public sealed class Connector

@@ -13,6 +13,8 @@ public sealed class NeoAdapterDbContext(DbContextOptions<NeoAdapterDbContext> op
 
     public DbSet<IntegrationJobRun> IntegrationJobRuns => Set<IntegrationJobRun>();
 
+    public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(NeoAdapterDbContext).Assembly);

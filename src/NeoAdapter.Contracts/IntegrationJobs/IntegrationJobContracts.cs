@@ -9,6 +9,7 @@ public sealed record IntegrationJobDto(
     string DestinationConnectorName,
     string DirectionLabel,
     bool IsEnabled,
+    string? CronExpression,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     DateTimeOffset? LastRunAtUtc,
@@ -19,7 +20,8 @@ public sealed record CreateIntegrationJobRequest(
     string Name,
     Guid SourceConnectorId,
     Guid DestinationConnectorId,
-    bool IsEnabled);
+    bool IsEnabled,
+    string? CronExpression);
 
 public sealed record RunIntegrationJobRequest(Guid IntegrationJobId);
 
