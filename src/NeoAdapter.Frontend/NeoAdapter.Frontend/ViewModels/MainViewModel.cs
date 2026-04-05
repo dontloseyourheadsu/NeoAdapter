@@ -446,6 +446,10 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             ApplyAuthenticatedUser(response);
             await StartPollingAsync();
         }
+        catch (InvalidOperationException ex)
+        {
+            ErrorMessage = ex.Message;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             ErrorMessage = "Login failed.";
@@ -468,6 +472,10 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
             ApplyAuthenticatedUser(response);
             await StartPollingAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            ErrorMessage = ex.Message;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

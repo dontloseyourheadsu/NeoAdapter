@@ -83,8 +83,20 @@ public partial class App : Application
 
     private static MainViewModel BuildMainViewModel()
     {
-        var baseUrl = Environment.GetEnvironmentVariable("NEOADAPTER_API_BASE_URL")
-            ?? "http://localhost:5193/";
+        var baseUrl = Environment.GetEnvironmentVariable("NEOADAPTER_API_BASE_URL");
+
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            if (OperatingSystem.IsBrowser())
+            {
+                // Browser client talks to nginx host; nginx proxies /api to backend.
+                baseUrl = "http://localhost:5235/";
+            }
+            else
+            {
+                baseUrl = "http://localhost:5193/";
+            }
+        }
 
         if (!baseUrl.EndsWith('/'))
         {

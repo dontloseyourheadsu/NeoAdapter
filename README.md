@@ -28,12 +28,13 @@ Default local URLs are configured in `src/NeoAdapter.Api/Properties/launchSettin
 
 The API uses local username/password authentication with JWT bearer tokens.
 
-On startup, if the `user_accounts` table is empty, a default development account is created:
+In Development environment, the API validates a default development admin account on startup:
 
 - Username: `admin`
 - Password: `Admin123!`
 
-If at least one user already exists, no default user is created.
+If `admin` is missing, it is created.
+If `admin` exists but has a different password hash, it is reset to `Admin123!`.
 
 ## Run Avalonia Desktop
 

@@ -15,5 +15,6 @@ RUN dotnet publish src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/NeoAdapte
 FROM nginx:1.27-alpine AS final
 WORKDIR /usr/share/nginx/html
 COPY --from=build /app/publish/wwwroot .
+COPY src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
