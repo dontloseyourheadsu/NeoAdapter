@@ -13,7 +13,7 @@ public sealed class AuthService(
 {
     public async Task<AuthResponse> RegisterAsync(RegisterUserRequest request, CancellationToken cancellationToken)
     {
-        var username = request.Username.Trim();
+        var username = request.Username?.Trim();
         if (string.IsNullOrWhiteSpace(username))
         {
             throw new InvalidOperationException("Username is required.");
@@ -51,7 +51,12 @@ public sealed class AuthService(
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
     {
-        var username = request.Username.Trim();
+        var username = request.Username?.Trim();
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(request.Password))
+        {
+            throw new InvalidOperationException("Username and password are required.");
+        }
+
         var user = await dbContext.UserAccounts
             .FirstOrDefaultAsync(item => item.Username.ToLower() == username.ToLower(), cancellationToken)
             ?? throw new InvalidOperationException("Invalid username or password.");

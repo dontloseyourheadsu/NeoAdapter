@@ -133,20 +133,57 @@ using (var scope = app.Services.CreateScope())
     await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE IF EXISTS integration_jobs ADD COLUMN IF NOT EXISTS cron_expression character varying(120);");
     await NeoAdapterSeedData.SeedAsync(dbContext, sqlSecretProtector, CancellationToken.None);
 
-    var hasUsers = await dbContext.UserAccounts.AnyAsync();
-    if (!hasUsers)
+    if (app.Environment.IsDevelopment())
     {
-        var (hash, salt) = passwordHasher.HashPassword("Admin123!");
-        dbContext.UserAccounts.Add(new NeoAdapter.Domain.UserAccount
+        const string developmentAdminUsername = "admin";
+        const string developmentAdminPassword = "Admin123!";
+
+        var adminUser = await dbContext.UserAccounts
+            .FirstOrDefaultAsync(
+                user => user.Username.ToLower() == developmentAdminUsername,
+                CancellationToken.None);
+
+        if (adminUser is null)
         {
-            Id = Guid.NewGuid(),
-            Username = "admin",
-            PasswordHash = hash,
-            PasswordSalt = salt,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            LastLoginAtUtc = DateTimeOffset.UtcNow
-        });
-        await dbContext.SaveChangesAsync();
+            var (hash, salt) = passwordHasher.HashPassword(developmentAdminPassword);
+            dbContext.UserAccounts.Add(new NeoAdapter.Domain.UserAccount
+            {
+                Id = Guid.NewGuid(),
+                Username = developmentAdminUsername,
+                PasswordHash = hash,
+                PasswordSalt = salt,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                LastLoginAtUtc = DateTimeOffset.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+        else
+        {
+            var isExpectedPassword = passwordHasher.Verify(
+                developmentAdminPassword,
+                adminUser.PasswordHash,
+                adminUser.PasswordSalt);
+
+            var hasChanges = false;
+            if (!isExpectedPassword)
+            {
+                var (hash, salt) = passwordHasher.HashPassword(developmentAdminPassword);
+                adminUser.PasswordHash = hash;
+                adminUser.PasswordSalt = salt;
+                hasChanges = true;
+            }
+
+            if (!string.Equals(adminUser.Username, developmentAdminUsername, StringComparison.Ordinal))
+            {
+                adminUser.Username = developmentAdminUsername;
+                hasChanges = true;
+            }
+
+            if (hasChanges)
+            {
+                await dbContext.SaveChangesAsync();
+            }
+        }
     }
 
     await integrationJobScheduler.SyncAllAsync(CancellationToken.None);
