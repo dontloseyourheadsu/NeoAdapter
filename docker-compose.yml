@@ -10,6 +10,7 @@ services:
       - "5432:5432"
     volumes:
       - neoadapter_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d neoadapter_dev"]
       interval: 5s
@@ -42,9 +43,6 @@ services:
     container_name: neoadapter-frontend-browser
     depends_on:
       - api
-    environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      NEOADAPTER_API_BASE_URL: http://localhost:5193/
     restart: unless-stopped
     ports:
       - "5235:80"
