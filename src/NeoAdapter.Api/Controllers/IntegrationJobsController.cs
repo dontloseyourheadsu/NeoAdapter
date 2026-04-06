@@ -10,6 +10,18 @@ namespace NeoAdapter.Api.Controllers;
 [Route("api/integration-jobs")]
 public sealed class IntegrationJobsController(IIntegrationJobService integrationJobService) : ControllerBase
 {
+    [AllowAnonymous]
+    [HttpGet("ping")]
+    public ActionResult<object> Ping()
+    {
+        return Ok(new
+        {
+            status = "ok",
+            controller = "integration-jobs",
+            timestampUtc = DateTimeOffset.UtcNow
+        });
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<IntegrationJobDto>>> GetAll(CancellationToken cancellationToken)
     {

@@ -2,12 +2,35 @@
 
 NeoAdapter is a job orchestration platform with an API backend and an Avalonia frontend (Desktop, Browser, Android).
 
+## Run With .NET Aspire (Recommended)
+
+Aspire now orchestrates the local development stack for:
+
+- PostgreSQL 16
+- NeoAdapter API
+- Avalonia Browser frontend
+
+From repository root:
+
+```bash
+dotnet run --project src/NeoAdapter.AppHost/NeoAdapter.AppHost.csproj
+```
+
+Open the Aspire dashboard URL printed in the terminal, then launch:
+
+- `api`
+- `frontend-browser`
+
+The AppHost wires:
+
+- `ConnectionStrings:Postgres` for the API from the managed PostgreSQL resource
+- `NEOADAPTER_API_BASE_URL` for the browser frontend from the API HTTP endpoint
+
+This removes the need for Docker Compose during normal local development.
+
 ## Prerequisites
 
 - .NET 10 SDK
-- Optional for local API + Hangfire + PostgreSQL:
-  - PostgreSQL instance
-  - Valid `Postgres` connection string in `src/NeoAdapter.Api/appsettings.Development.json`
 - Optional for Android target:
   - Android SDK + emulator/device
 
@@ -23,6 +46,19 @@ Default local URLs are configured in `src/NeoAdapter.Api/Properties/launchSettin
 
 - `https://localhost:7277`
 - `http://localhost:5193`
+
+Swagger UI:
+
+- `http://localhost:5193/swagger`
+
+Health and ping endpoints:
+
+- `/health`
+- `/ping`
+- `/api/auth/ping`
+- `/api/connectors/ping`
+- `/api/dashboard/ping`
+- `/api/integration-jobs/ping`
 
 ## Development Authentication
 
@@ -59,11 +95,9 @@ From repository root:
 dotnet run --project src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/NeoAdapter.Frontend.Browser.csproj
 ```
 
-Default browser host URLs are configured in `src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/Properties/launchSettings.json`:
+Default browser host URLs are configured in `src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/Properties/launchSettings.json`.
 
-- `http://localhost:5235`
-
-Use `http://localhost:5235` for local development.
+When running through Aspire, the browser URL is assigned by Aspire and shown in the dashboard.
 
 ## Run Avalonia Android
 
@@ -84,30 +118,4 @@ From repository root:
 dotnet build NeoAdapter.slnx
 ```
 
-## Docker Compose
-
-Run API + Browser Frontend + PostgreSQL together:
-
-```bash
-docker compose up --build
-```
-
-Services:
-
-- Frontend (browser host): `http://localhost:5235`
-- API: `http://localhost:5193`
-- PostgreSQL: `localhost:5432`
-
-Stop and remove containers:
-
-```bash
-docker compose down
-```
-
-View logs:
-
-```bash
-docker compose logs -f api
-docker compose logs -f frontend-browser
-docker compose logs -f postgres
-```
+Aspire is the supported local orchestration path.

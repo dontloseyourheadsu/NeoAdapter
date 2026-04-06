@@ -8,6 +8,7 @@ using NeoAdapter.Application.Database.Contexts;
 using NeoAdapter.Application.DependencyInjection;
 using NeoAdapter.Application.IntegrationJobs;
 using NeoAdapter.Application.Security;
+using Scalar.AspNetCore;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -47,20 +48,46 @@ builder.Services.AddHangfireServer();
 builder.Services.AddDataProtection();
 
 builder.Services.AddNeoAdapterApplicationServices();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+var configuredCorsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+var corsOrigins = (configuredCorsOrigins is { Length: > 0 })
+    ? configuredCorsOrigins
+    : ["http://localhost:5193", "http://127.0.0.1:5193", "https://localhost:7277"];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
     {
-        policy
-            .AllowAnyOrigin()
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        policy.AllowAnyHeader()
+            .AllowAnyMethod()
+            .SetIsOriginAllowed(origin =>
+            {
+                if (applicableConfiguredOrigin(origin, corsOrigins))
+                {
+                    return true;
+                }
+
+                if (!builder.Environment.IsDevelopment())
+                {
+                    return false;
+                }
+
+                return Uri.TryCreate(origin, UriKind.Absolute, out var originUri)
+                    && (string.Equals(originUri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+                        || originUri.Host == "127.0.0.1");
+            });
     });
 });
+
+static bool applicableConfiguredOrigin(string origin, string[] allowedOrigins)
+{
+    return allowedOrigins.Any(allowed => string.Equals(allowed, origin, StringComparison.OrdinalIgnoreCase));
+}
 
 var app = builder.Build();
 
@@ -68,6 +95,9 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference();
+    app.MapGet("/swagger", () => Results.Redirect("/scalar", permanent: false));
+    app.MapGet("/swagger/index.html", () => Results.Redirect("/scalar", permanent: false));
 }
 
 using (var scope = app.Services.CreateScope())
@@ -199,6 +229,14 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseHangfireDashboard("/hangfire");
+
+app.MapGet("/ping", () => Results.Ok(new
+{
+    status = "ok",
+    service = "neo-adapter-api",
+    timestampUtc = DateTimeOffset.UtcNow
+}));
+app.MapHealthChecks("/health");
 
 app.MapControllers();
 

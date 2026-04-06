@@ -1,6 +1,5 @@
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System;
@@ -11,11 +10,6 @@ namespace NeoAdapter.Frontend.Services;
 
 public sealed class AuthApiClient(HttpClient httpClient)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     private static readonly Uri[] FallbackBaseAddresses =
     [
         new("http://localhost:5193/"),
@@ -39,7 +33,7 @@ public sealed class AuthApiClient(HttpClient httpClient)
                 : error.Trim());
         }
 
-        return await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, cancellationToken);
+        return await response.Content.ReadFromJsonAsync(NeoAdapterJsonTypeInfo.For<AuthResponse>(), cancellationToken);
     }
 
     public async Task<AuthResponse?> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
@@ -58,7 +52,7 @@ public sealed class AuthApiClient(HttpClient httpClient)
                 : error.Trim());
         }
 
-        return await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, cancellationToken);
+        return await response.Content.ReadFromJsonAsync(NeoAdapterJsonTypeInfo.For<AuthResponse>(), cancellationToken);
     }
 
     private async Task<HttpResponseMessage?> PostWithFallbackAsync<TRequest>(
@@ -79,7 +73,7 @@ public sealed class AuthApiClient(HttpClient httpClient)
 
             try
             {
-                return await httpClient.PostAsJsonAsync(relativeUrl, request, cancellationToken);
+                return await httpClient.PostAsJsonAsync(relativeUrl, request, NeoAdapterJsonTypeInfo.For<TRequest>(), cancellationToken);
             }
             catch (HttpRequestException)
             {
