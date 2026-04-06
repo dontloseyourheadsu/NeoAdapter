@@ -10,6 +10,17 @@ namespace NeoAdapter.Api.Controllers;
 [Route("api/auth")]
 public sealed class AuthController(IAuthService authService) : ControllerBase
 {
+    [HttpGet("ping")]
+    public ActionResult<object> Ping()
+    {
+        return Ok(new
+        {
+            status = "ok",
+            controller = "auth",
+            timestampUtc = DateTimeOffset.UtcNow
+        });
+    }
+
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(
         [FromBody] RegisterUserRequest request,

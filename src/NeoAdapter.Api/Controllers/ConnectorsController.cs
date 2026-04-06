@@ -10,6 +10,18 @@ namespace NeoAdapter.Api.Controllers;
 [Route("api/connectors")]
 public sealed class ConnectorsController(IConnectorService connectorService) : ControllerBase
 {
+    [AllowAnonymous]
+    [HttpGet("ping")]
+    public ActionResult<object> Ping()
+    {
+        return Ok(new
+        {
+            status = "ok",
+            controller = "connectors",
+            timestampUtc = DateTimeOffset.UtcNow
+        });
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ConnectorDto>>> GetAll(CancellationToken cancellationToken)
     {
