@@ -89,8 +89,7 @@ public partial class App : Application
         {
             if (OperatingSystem.IsBrowser())
             {
-                // Browser client talks to nginx host; nginx proxies /api to backend.
-                baseUrl = "http://localhost:5235/";
+                baseUrl = "http://localhost:5193/";
             }
             else
             {
