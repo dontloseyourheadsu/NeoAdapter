@@ -1,5 +1,10 @@
 namespace NeoAdapter.Contracts.Dashboard;
 
+public sealed record DashboardAnalyticsPoint(
+    DateTimeOffset Date,
+    int SuccessfulRuns,
+    int FailedRuns);
+
 public sealed record DashboardResponse(
     int TotalJobs,
     int EnabledJobs,
@@ -7,6 +12,7 @@ public sealed record DashboardResponse(
     int TotalConnectors,
     IReadOnlyList<DashboardJobSummaryItem> Jobs,
     IReadOnlyList<DashboardRunItem> RecentRuns,
+    IReadOnlyList<DashboardAnalyticsPoint> Analytics,
     DateTimeOffset GeneratedAtUtc);
 
 public sealed record DashboardJobSummaryItem(
@@ -22,3 +28,8 @@ public sealed record DashboardRunItem(
     string Level,
     string Message,
     string JobName);
+
+public sealed record DashboardFilterRequest(
+    Guid? OrganizationId = null,
+    Guid? GroupId = null,
+    Guid? UserId = null);
