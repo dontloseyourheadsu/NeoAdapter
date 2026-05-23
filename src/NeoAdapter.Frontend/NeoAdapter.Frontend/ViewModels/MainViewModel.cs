@@ -23,9 +23,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private readonly DashboardApiClient _dashboardApiClient;
     private readonly ConnectorApiClient _connectorApiClient;
     private readonly IntegrationJobsApiClient _integrationJobsApiClient;
+    private readonly TokenStorage _tokenStorage;
     private readonly PeriodicTimer _refreshTimer = new(TimeSpan.FromSeconds(8));
     private readonly CancellationTokenSource _refreshCts = new();
     private bool _isRefreshing;
+    private DateTimeOffset _accessTokenExpiresAt = DateTimeOffset.MinValue;
+    private string? _currentRefreshToken;
 
     public MainViewModel()
         : this(
@@ -33,7 +36,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             new AuthApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }),
             new DashboardApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }),
             new ConnectorApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }),
-            new IntegrationJobsApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }))
+            new IntegrationJobsApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }),
+            new TokenStorage())
     {
     }
 
@@ -42,13 +46,15 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         AuthApiClient authApiClient,
         DashboardApiClient dashboardApiClient,
         ConnectorApiClient connectorApiClient,
-        IntegrationJobsApiClient integrationJobsApiClient)
+        IntegrationJobsApiClient integrationJobsApiClient,
+        TokenStorage tokenStorage)
     {
         _httpClient = httpClient;
         _authApiClient = authApiClient;
         _dashboardApiClient = dashboardApiClient;
         _connectorApiClient = connectorApiClient;
         _integrationJobsApiClient = integrationJobsApiClient;
+        _tokenStorage = tokenStorage;
 
         LoginCommand = new AsyncRelayCommand(() => LoginAsync(_refreshCts.Token));
         RegisterCommand = new AsyncRelayCommand(() => RegisterAsync(_refreshCts.Token));
@@ -59,6 +65,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         CreateIntegrationJobCommand = new AsyncRelayCommand(() => CreateIntegrationJobAsync(_refreshCts.Token));
         RunIntegrationJobCommand = new AsyncRelayCommand<IntegrationJobDto>(RunIntegrationJobAsync);
 
+        _ = TryAutoLoginAsync();
     }
 
     public ObservableCollection<DashboardJobSummaryItem> DashboardJobs { get; } = [];
@@ -127,6 +134,9 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private string _currentUsername = string.Empty;
+
+    [ObservableProperty]
+    private bool _rememberMe = true;
 
     [ObservableProperty]
     private string _newConnectorName = string.Empty;
@@ -221,7 +231,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     private async Task RefreshAllAsync(CancellationToken cancellationToken)
     {
-        if (!IsAuthenticated)
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
             return;
         }
@@ -282,6 +292,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     private async Task CreateConnectorAsync(CancellationToken cancellationToken)
     {
+        if (!await EnsureAuthenticatedAsync(cancellationToken)) return;
         try
         {
             var request = new CreateConnectorRequest(
@@ -322,6 +333,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     private async Task TestConnectorAsync(CancellationToken cancellationToken)
     {
+        if (!await EnsureAuthenticatedAsync(cancellationToken)) return;
         try
         {
             var request = new TestConnectorRequest(
@@ -358,6 +370,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     private async Task CreateIntegrationJobAsync(CancellationToken cancellationToken)
     {
+        if (!await EnsureAuthenticatedAsync(cancellationToken)) return;
         if (SelectedSourceConnector is null || SelectedDestinationConnector is null)
         {
             ErrorMessage = "Select both source and destination connectors.";
@@ -401,6 +414,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        if (!await EnsureAuthenticatedAsync(_refreshCts.Token)) return;
+
         try
         {
             var response = await _integrationJobsApiClient.RunNowAsync(job.Id, _refreshCts.Token);
@@ -434,7 +449,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         try
         {
             var response = await _authApiClient.LoginAsync(
-                new LoginRequest(LoginUsername, LoginPassword),
+                new LoginRequest(LoginUsername, LoginPassword, RememberMe),
                 cancellationToken);
 
             if (response is null)
@@ -443,7 +458,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            ApplyAuthenticatedUser(response);
+            await ApplyAuthenticatedUserAsync(response);
             await StartPollingAsync();
         }
         catch (InvalidOperationException ex)
@@ -470,7 +485,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            ApplyAuthenticatedUser(response);
+            await ApplyAuthenticatedUserAsync(response);
             await StartPollingAsync();
         }
         catch (InvalidOperationException ex)
@@ -483,19 +498,31 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void ApplyAuthenticatedUser(AuthResponse response)
+    private async Task ApplyAuthenticatedUserAsync(AuthResponse response)
     {
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", response.AccessToken);
+        _accessTokenExpiresAt = response.ExpiresAtUtc;
+        _currentRefreshToken = response.RefreshToken;
+        
         IsAuthenticated = true;
         CurrentUsername = response.Username;
         LoginPassword = string.Empty;
         ErrorMessage = null;
         StatusMessage = $"Signed in as {response.Username}.";
+
+        if (!string.IsNullOrEmpty(response.RefreshToken))
+        {
+            await _tokenStorage.SaveAsync(new StoredTokens(response.AccessToken, response.RefreshToken, response.ExpiresAtUtc));
+        }
     }
 
     private void Logout()
     {
         _httpClient.DefaultRequestHeaders.Authorization = null;
+        _accessTokenExpiresAt = DateTimeOffset.MinValue;
+        _currentRefreshToken = null;
+        _tokenStorage.Clear();
+
         IsAuthenticated = false;
         CurrentUsername = string.Empty;
         StatusMessage = "Signed out.";
@@ -508,5 +535,54 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     partial void OnIsAuthenticatedChanged(bool value)
     {
         OnPropertyChanged(nameof(IsNotAuthenticated));
+    }
+
+    private async Task TryAutoLoginAsync()
+    {
+        var tokens = await _tokenStorage.LoadAsync();
+        if (tokens is null) return;
+
+        _currentRefreshToken = tokens.RefreshToken;
+        
+        // Even if access token is not expired, we might want to refresh it to be safe 
+        // or just apply it. Let's try to refresh immediately to ensure the session is still valid.
+        await EnsureAuthenticatedAsync(_refreshCts.Token);
+
+        if (IsAuthenticated)
+        {
+            await StartPollingAsync();
+        }
+    }
+
+    private async Task<bool> EnsureAuthenticatedAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(_currentRefreshToken)) return IsAuthenticated;
+
+        // If token expires in less than 2 minutes, refresh it
+        if (_accessTokenExpiresAt < DateTimeOffset.UtcNow.AddMinutes(2))
+        {
+            try
+            {
+                var response = await _authApiClient.RefreshAsync(new RefreshTokenRequest(_currentRefreshToken), cancellationToken);
+                if (response is not null)
+                {
+                    await ApplyAuthenticatedUserAsync(response);
+                    return true;
+                }
+                else
+                {
+                    Logout();
+                    return false;
+                }
+            }
+            catch
+            {
+                // If refresh fails (e.g. network error), we don't necessarily want to logout
+                // unless it's a 401/403 which RefreshAsync already handles by returning null.
+                return IsAuthenticated;
+            }
+        }
+
+        return IsAuthenticated;
     }
 }

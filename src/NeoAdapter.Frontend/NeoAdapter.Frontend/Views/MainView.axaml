@@ -41,6 +41,8 @@
                 <TextBox Watermark="Username" Text="{Binding LoginUsername}" Classes="input" />
                 <TextBox Watermark="Password" PasswordChar="*" Text="{Binding LoginPassword}" Classes="input" />
 
+                <CheckBox Content="Remember me" IsChecked="{Binding RememberMe}" Margin="0,4" />
+
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                     <Button Content="Login" Command="{Binding LoginCommand}" Classes="primary-btn" />
                     <Button Grid.Column="1" Content="Register" Command="{Binding RegisterCommand}" Classes="ghost-btn" />

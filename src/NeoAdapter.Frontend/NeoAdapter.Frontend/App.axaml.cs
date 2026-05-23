@@ -112,6 +112,7 @@ public partial class App : Application
         var dashboardApiClient = new DashboardApiClient(httpClient);
         var connectorApiClient = new ConnectorApiClient(httpClient);
         var integrationJobsApiClient = new IntegrationJobsApiClient(httpClient);
-        return new MainViewModel(httpClient, authApiClient, dashboardApiClient, connectorApiClient, integrationJobsApiClient);
-    }
-}
+        var tokenStorage = new TokenStorage();
+        return new MainViewModel(httpClient, authApiClient, dashboardApiClient, connectorApiClient, integrationJobsApiClient, tokenStorage);
+        }
+        }

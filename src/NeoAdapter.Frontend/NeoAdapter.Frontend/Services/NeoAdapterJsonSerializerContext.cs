@@ -12,6 +12,7 @@ namespace NeoAdapter.Frontend.Services;
 [JsonSerializable(typeof(AuthResponse))]
 [JsonSerializable(typeof(LoginRequest))]
 [JsonSerializable(typeof(RegisterUserRequest))]
+[JsonSerializable(typeof(RefreshTokenRequest))]
 [JsonSerializable(typeof(ConnectorDto))]
 [JsonSerializable(typeof(CreateConnectorRequest))]
 [JsonSerializable(typeof(TestConnectorRequest))]
