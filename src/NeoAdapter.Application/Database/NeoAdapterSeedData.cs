@@ -16,13 +16,13 @@ public static class NeoAdapterSeedData
         var now = DateTimeOffset.UtcNow;
 
         // 1. Ensure at least one Organization exists
-        var org = await dbContext.Organizations.FirstOrDefaultAsync(cancellationToken);
+        var org = await dbContext.Organizations.FirstOrDefaultAsync(o => o.Name == "NeoAdapter", cancellationToken);
         if (org == null)
         {
             org = new Organization
             {
                 Id = Guid.NewGuid(),
-                Name = "NeoAdapter Default Org",
+                Name = "NeoAdapter",
                 CreatedAtUtc = now
             };
             dbContext.Organizations.Add(org);
@@ -48,23 +48,11 @@ public static class NeoAdapterSeedData
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        // 3. Fix existing users who might be missing an OrganizationId (from older versions)
-        var usersWithoutOrg = await dbContext.UserAccounts
-            .Where(u => u.OrganizationId == Guid.Empty)
-            .ToListAsync(cancellationToken);
-        
-        if (usersWithoutOrg.Count > 0)
+        // 3. Seed Sample Connectors and Jobs if none exist
+        if (!await dbContext.IntegrationJobs.AnyAsync(cancellationToken))
         {
-            foreach (var user in usersWithoutOrg)
-            {
-                user.OrganizationId = org.Id;
-            }
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
+            var sqlConfig = "{\"Tables\": [{\"Name\": \"Products\", \"Fields\": [\"Id\", \"Name\", \"Price\", \"Stock\"]}]}";
 
-        // 4. Seed Sample Connectors if none exist
-        if (!await dbContext.Connectors.AnyAsync(cancellationToken))
-        {
             var sqlSource = new Connector
             {
                 Id = Guid.NewGuid(),
@@ -76,6 +64,7 @@ public static class NeoAdapterSeedData
                 SqlUsername = "sa",
                 SqlPassword = sqlSecretProtector.Protect("ChangeMe!123"),
                 SqlTrustServerCertificate = true,
+                SqlConfigJson = sqlConfig,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };
@@ -113,36 +102,53 @@ public static class NeoAdapterSeedData
                 SqlUsername = "sa",
                 SqlPassword = sqlSecretProtector.Protect("ChangeMe!123"),
                 SqlTrustServerCertificate = true,
+                SqlConfigJson = sqlConfig,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };
 
             dbContext.Connectors.AddRange(sqlSource, csvTarget, csvSource, sqlTarget);
 
-            dbContext.IntegrationJobs.AddRange(
-                new IntegrationJob
+            var sqlToCsvJob = new IntegrationJob
+            {
+                Id = Guid.NewGuid(),
+                Name = "SQL to CSV - Initial Job",
+                OwnerOrganizationId = org.Id,
+                IsEnabled = true,
+                CronExpression = null,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+
+            var csvToSqlJob = new IntegrationJob
+            {
+                Id = Guid.NewGuid(),
+                Name = "CSV to SQL - Initial Job",
+                OwnerOrganizationId = org.Id,
+                IsEnabled = true,
+                CronExpression = null,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+
+            dbContext.IntegrationJobs.AddRange(sqlToCsvJob, csvToSqlJob);
+
+            dbContext.Set<IntegrationJobStep>().AddRange(
+                new IntegrationJobStep
                 {
                     Id = Guid.NewGuid(),
-                    Name = "SQL to CSV - Initial Job",
+                    IntegrationJobId = sqlToCsvJob.Id,
+                    OrderIndex = 0,
                     SourceConnectorId = sqlSource.Id,
-                    DestinationConnectorId = csvTarget.Id,
-                    OwnerOrganizationId = org.Id,
-                    IsEnabled = true,
-                    CronExpression = null,
-                    CreatedAtUtc = now,
-                    UpdatedAtUtc = now
+                    DestinationConnectorId = csvTarget.Id
                 },
-                new IntegrationJob
+                new IntegrationJobStep
                 {
                     Id = Guid.NewGuid(),
-                    Name = "CSV to SQL - Initial Job",
+                    IntegrationJobId = csvToSqlJob.Id,
+                    OrderIndex = 0,
                     SourceConnectorId = csvSource.Id,
-                    DestinationConnectorId = sqlTarget.Id,
-                    OwnerOrganizationId = org.Id,
-                    IsEnabled = true,
-                    CronExpression = null,
-                    CreatedAtUtc = now,
-                    UpdatedAtUtc = now
+                    DestinationConnectorId = sqlTarget.Id
                 });
 
             await dbContext.SaveChangesAsync(cancellationToken);
