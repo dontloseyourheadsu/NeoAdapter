@@ -23,9 +23,11 @@ public sealed class DashboardController(IDashboardService dashboardService) : Co
     }
 
     [HttpGet]
-    public async Task<ActionResult<DashboardResponse>> Get(CancellationToken cancellationToken)
+    public async Task<ActionResult<DashboardResponse>> Get(
+        [FromQuery] DashboardFilterRequest filter,
+        CancellationToken cancellationToken)
     {
-        var response = await dashboardService.GetDashboardAsync(cancellationToken);
+        var response = await dashboardService.GetDashboardAsync(filter, cancellationToken);
         return Ok(response);
     }
-}
+    }

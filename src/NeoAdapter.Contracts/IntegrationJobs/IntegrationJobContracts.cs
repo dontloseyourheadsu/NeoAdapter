@@ -1,13 +1,19 @@
+using NeoAdapter.Contracts.Connectors;
+
 namespace NeoAdapter.Contracts.IntegrationJobs;
+
+public sealed record IntegrationJobStepDto(
+    Guid Id,
+    int OrderIndex,
+    Guid SourceConnectorId,
+    Guid DestinationConnectorId,
+    string SourceConnectorName,
+    string DestinationConnectorName);
 
 public sealed record IntegrationJobDto(
     Guid Id,
     string Name,
-    Guid SourceConnectorId,
-    Guid DestinationConnectorId,
-    string SourceConnectorName,
-    string DestinationConnectorName,
-    string DirectionLabel,
+    IReadOnlyList<IntegrationJobStepDto> Steps,
     bool IsEnabled,
     string? CronExpression,
     DateTimeOffset CreatedAtUtc,
@@ -16,10 +22,18 @@ public sealed record IntegrationJobDto(
     string? LastRunStatus,
     string? LastRunMessage);
 
+public sealed record CreateIntegrationJobStepRequest(
+    int OrderIndex,
+    ConnectorType SourceType,
+    SqlConnectorSettingsInputDto? SourceSql,
+    CsvConnectorSettingsDto? SourceCsv,
+    ConnectorType DestinationType,
+    SqlConnectorSettingsInputDto? DestinationSql,
+    CsvConnectorSettingsDto? DestinationCsv);
+
 public sealed record CreateIntegrationJobRequest(
     string Name,
-    Guid SourceConnectorId,
-    Guid DestinationConnectorId,
+    IReadOnlyList<CreateIntegrationJobStepRequest> Steps,
     bool IsEnabled,
     string? CronExpression,
     Guid? OwnerUserId = null,

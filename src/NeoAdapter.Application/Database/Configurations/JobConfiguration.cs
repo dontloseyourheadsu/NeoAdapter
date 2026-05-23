@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NeoAdapter.Domain;
@@ -37,6 +38,9 @@ public sealed class JobConfiguration : IEntityTypeConfiguration<Job>
         builder.Property(job => job.Schedule)
             .HasColumnName("schedule")
             .HasColumnType("jsonb")
+            .HasConversion(
+                doc => doc.RootElement.GetRawText(),
+                json => JsonDocument.Parse(json, default))
             .IsRequired();
 
         builder.Property(job => job.CreatedDate)

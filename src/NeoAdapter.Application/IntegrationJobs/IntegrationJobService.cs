@@ -1,35 +1,46 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using NeoAdapter.Application.Connectors;
 using NeoAdapter.Application.Database.Contexts;
+using NeoAdapter.Contracts.Connectors;
 using NeoAdapter.Contracts.IntegrationJobs;
 using NeoAdapter.Domain;
+using ConnectorTypeContract = NeoAdapter.Contracts.Connectors.ConnectorType;
+using ConnectorTypeDomain = NeoAdapter.Domain.ConnectorType;
 
 namespace NeoAdapter.Application.IntegrationJobs;
 
 public sealed class IntegrationJobService(
     NeoAdapterDbContext dbContext,
     IBackgroundJobClient backgroundJobClient,
-    IIntegrationJobScheduler integrationJobScheduler) : IIntegrationJobService
+    IIntegrationJobScheduler integrationJobScheduler,
+    IConnectorService connectorService) : IIntegrationJobService
 {
     public async Task<IReadOnlyList<IntegrationJobDto>> GetAllAsync(CancellationToken cancellationToken)
     {
         var jobs = await dbContext.IntegrationJobs
             .AsNoTracking()
-            .Include(job => job.SourceConnector)
-            .Include(job => job.DestinationConnector)
+            .Include(job => job.Steps)
+                .ThenInclude(step => step.SourceConnector)
+            .Include(job => job.Steps)
+                .ThenInclude(step => step.DestinationConnector)
             .OrderBy(job => job.Name)
             .ToListAsync(cancellationToken);
 
-        var jobIds = jobs.Select(job => job.Id).ToArray();
+        var jobIds = jobs.Select(job => job.Id).ToList();
+        
+        // Fetch runs separately to avoid MARS issues on Postgres
         var latestRuns = await dbContext.IntegrationJobRuns
+            .AsNoTracking()
             .Where(run => jobIds.Contains(run.IntegrationJobId))
-            .GroupBy(run => run.IntegrationJobId)
-            .Select(group => group
-                .OrderByDescending(run => run.StartedAtUtc)
-                .First())
-            .ToDictionaryAsync(run => run.IntegrationJobId, cancellationToken);
+            .OrderByDescending(run => run.StartedAtUtc)
+            .ToListAsync(cancellationToken);
 
-        return jobs.Select(job => MapToDto(job, latestRuns.GetValueOrDefault(job.Id))).ToArray();
+        var latestRunsMap = latestRuns
+            .GroupBy(run => run.IntegrationJobId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        return jobs.Select(job => MapToDto(job, latestRunsMap.GetValueOrDefault(job.Id))).ToArray();
     }
 
     public async Task<IntegrationJobDto> CreateAsync(CreateIntegrationJobRequest request, CancellationToken cancellationToken)
@@ -47,17 +58,9 @@ public sealed class IntegrationJobService(
             throw new InvalidOperationException("An integration job with this name already exists.");
         }
 
-        var source = await dbContext.Connectors
-            .FirstOrDefaultAsync(connector => connector.Id == request.SourceConnectorId, cancellationToken)
-            ?? throw new InvalidOperationException("Source connector was not found.");
-
-        var destination = await dbContext.Connectors
-            .FirstOrDefaultAsync(connector => connector.Id == request.DestinationConnectorId, cancellationToken)
-            ?? throw new InvalidOperationException("Destination connector was not found.");
-
-        if (!IsSupportedDirection(source.Type, destination.Type))
+        if (request.Steps == null || request.Steps.Count == 0)
         {
-            throw new InvalidOperationException("Unsupported connector direction.");
+            throw new InvalidOperationException("Integration job must have at least one step.");
         }
 
         // Ownership validation
@@ -75,23 +78,52 @@ public sealed class IntegrationJobService(
         {
             Id = Guid.NewGuid(),
             Name = trimmedName,
-            SourceConnectorId = source.Id,
-            DestinationConnectorId = destination.Id,
             OwnerUserId = request.OwnerUserId,
             OwnerGroupId = request.OwnerGroupId,
             OwnerOrganizationId = request.OwnerOrganizationId,
             IsEnabled = request.IsEnabled,
             CronExpression = cronExpression,
             CreatedAtUtc = now,
-            UpdatedAtUtc = now,
-            SourceConnector = source,
-            DestinationConnector = destination
+            UpdatedAtUtc = now
         };
+
+        foreach (var stepRequest in request.Steps.OrderBy(s => s.OrderIndex))
+        {
+            var sourceConnectorDto = await connectorService.CreateAsync(new CreateConnectorRequest(
+                $"{trimmedName} - Step {stepRequest.OrderIndex} Source",
+                stepRequest.SourceType,
+                stepRequest.SourceSql,
+                stepRequest.SourceCsv), cancellationToken);
+
+            var destinationConnectorDto = await connectorService.CreateAsync(new CreateConnectorRequest(
+                $"{trimmedName} - Step {stepRequest.OrderIndex} Destination",
+                stepRequest.DestinationType,
+                stepRequest.DestinationSql,
+                stepRequest.DestinationCsv), cancellationToken);
+
+            job.Steps.Add(new IntegrationJobStep
+            {
+                Id = Guid.NewGuid(),
+                IntegrationJobId = job.Id,
+                OrderIndex = stepRequest.OrderIndex,
+                SourceConnectorId = sourceConnectorDto.Id,
+                DestinationConnectorId = destinationConnectorDto.Id
+            });
+        }
 
         dbContext.IntegrationJobs.Add(job);
         await dbContext.SaveChangesAsync(cancellationToken);
         integrationJobScheduler.SyncJob(job.Id, job.IsEnabled, job.CronExpression);
-        return MapToDto(job, null);
+
+        // Reload to include relations for DTO mapping
+        var savedJob = await dbContext.IntegrationJobs
+            .Include(j => j.Steps)
+                .ThenInclude(s => s.SourceConnector)
+            .Include(j => j.Steps)
+                .ThenInclude(s => s.DestinationConnector)
+            .FirstAsync(j => j.Id == job.Id, cancellationToken);
+
+        return MapToDto(savedJob, null);
     }
 
     public async Task<EnqueueIntegrationJobResponse> EnqueueRunAsync(Guid integrationJobId, CancellationToken cancellationToken)
@@ -126,29 +158,23 @@ public sealed class IntegrationJobService(
         return new EnqueueIntegrationJobResponse(integrationJobId, hangfireJobId, DateTimeOffset.UtcNow);
     }
 
-    private static bool IsSupportedDirection(ConnectorType source, ConnectorType destination)
-    {
-        bool sourceIsSql = source == ConnectorType.SqlServer || source == ConnectorType.Postgres;
-        bool destIsSql = destination == ConnectorType.SqlServer || destination == ConnectorType.Postgres;
-        bool sourceIsCsv = source == ConnectorType.Csv;
-        bool destIsCsv = destination == ConnectorType.Csv;
-
-        return (sourceIsSql && destIsCsv) || (sourceIsCsv && destIsSql) || (sourceIsSql && destIsSql);
-    }
-
     private static IntegrationJobDto MapToDto(IntegrationJob job, IntegrationJobRun? latestRun)
     {
-        var sourceName = job.SourceConnector?.Name ?? "Unknown source";
-        var destinationName = job.DestinationConnector?.Name ?? "Unknown destination";
+        var steps = job.Steps
+            .OrderBy(s => s.OrderIndex)
+            .Select(s => new IntegrationJobStepDto(
+                s.Id,
+                s.OrderIndex,
+                s.SourceConnectorId,
+                s.DestinationConnectorId,
+                s.SourceConnector?.Name ?? "Unknown source",
+                s.DestinationConnector?.Name ?? "Unknown destination"))
+            .ToList();
 
         return new IntegrationJobDto(
             job.Id,
             job.Name,
-            job.SourceConnectorId,
-            job.DestinationConnectorId,
-            sourceName,
-            destinationName,
-            $"{sourceName} -> {destinationName}",
+            steps,
             job.IsEnabled,
             job.CronExpression,
             job.CreatedAtUtc,

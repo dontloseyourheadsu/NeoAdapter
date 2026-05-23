@@ -33,15 +33,17 @@ public sealed class IntegrationJobExecutor(
     public async Task ExecuteAsync(Guid integrationJobId)
     {
         var job = await dbContext.IntegrationJobs
-            .Include(item => item.SourceConnector)
-            .Include(item => item.DestinationConnector)
-            .FirstOrDefaultAsync(item => item.Id == integrationJobId)
+            .Include(j => j.Steps)
+                .ThenInclude(s => s.SourceConnector)
+            .Include(j => j.Steps)
+                .ThenInclude(s => s.DestinationConnector)
+            .FirstOrDefaultAsync(j => j.Id == integrationJobId)
             ?? throw new InvalidOperationException("Integration job was not found.");
 
         var run = await dbContext.IntegrationJobRuns
-            .Where(item => item.IntegrationJobId == integrationJobId)
-            .OrderByDescending(item => item.StartedAtUtc)
-            .FirstOrDefaultAsync(item => item.Status == "QUEUED")
+            .Where(r => r.IntegrationJobId == integrationJobId)
+            .OrderByDescending(r => r.StartedAtUtc)
+            .FirstOrDefaultAsync(r => r.Status == "QUEUED")
             ?? new IntegrationJobRun
             {
                 Id = Guid.NewGuid(),
@@ -52,7 +54,7 @@ public sealed class IntegrationJobExecutor(
                 RecordsProcessed = 0
             };
 
-        var isTracked = await dbContext.IntegrationJobRuns.AnyAsync(item => item.Id == run.Id);
+        var isTracked = await dbContext.IntegrationJobRuns.AnyAsync(r => r.Id == run.Id);
         if (!isTracked)
         {
             dbContext.IntegrationJobRuns.Add(run);
@@ -67,30 +69,38 @@ public sealed class IntegrationJobExecutor(
 
         try
         {
-            var source = job.SourceConnector ?? throw new InvalidOperationException("Source connector is missing.");
-            var destination = job.DestinationConnector ?? throw new InvalidOperationException("Destination connector is missing.");
+            int totalProcessed = 0;
+            var steps = job.Steps.OrderBy(s => s.OrderIndex).ToList();
+            
+            foreach (var step in steps)
+            {
+                var source = step.SourceConnector ?? throw new InvalidOperationException($"Source connector is missing for step {step.OrderIndex}.");
+                var destination = step.DestinationConnector ?? throw new InvalidOperationException($"Destination connector is missing for step {step.OrderIndex}.");
 
-            int processed;
-            if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.Csv)
-            {
-                processed = await ExecuteSqlToCsvAsync(source, destination);
-            }
-            else if (source.Type == ConnectorType.Csv && IsSqlConnector(destination.Type))
-            {
-                processed = await ExecuteCsvToSqlAsync(source, destination);
-            }
-            else if (IsSqlConnector(source.Type) && IsSqlConnector(destination.Type))
-            {
-                processed = await ExecuteSqlToSqlAsync(source, destination);
-            }
-            else
-            {
-                throw new InvalidOperationException("Unsupported connector direction.");
+                int processed;
+                if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.Csv)
+                {
+                    processed = await ExecuteSqlToCsvAsync(source, destination);
+                }
+                else if (source.Type == ConnectorType.Csv && IsSqlConnector(destination.Type))
+                {
+                    processed = await ExecuteCsvToSqlAsync(source, destination);
+                }
+                else if (IsSqlConnector(source.Type) && IsSqlConnector(destination.Type))
+                {
+                    processed = await ExecuteSqlToSqlAsync(source, destination);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Unsupported connector direction in step {step.OrderIndex}.");
+                }
+                
+                totalProcessed += processed;
             }
 
             run.Status = "SUCCEEDED";
-            run.Message = $"Successfully processed {processed} record(s).";
-            run.RecordsProcessed = processed;
+            run.Message = $"Successfully processed {totalProcessed} record(s) across {steps.Count} step(s).";
+            run.RecordsProcessed = totalProcessed;
             run.FinishedAtUtc = DateTimeOffset.UtcNow;
             await dbContext.SaveChangesAsync();
         }
@@ -109,23 +119,13 @@ public sealed class IntegrationJobExecutor(
 
     private async Task<int> ExecuteSqlToSqlAsync(Connector source, Connector destination)
     {
-        var configJson = source.SqlConfigJson ?? destination.SqlConfigJson;
-        if (string.IsNullOrWhiteSpace(configJson))
-        {
-            throw new InvalidOperationException("SQL to SQL migration requires configuration (tables and fields).");
-        }
-
-        var config = JsonSerializer.Deserialize<SqlConfig>(configJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        if (config == null || config.Tables.Count == 0)
-        {
-            return 0;
-        }
-
+        var sourceConfig = GetSqlConfig(source);
+        
         await using var sourceConn = await CreateAndOpenSqlConnectionAsync(source);
         await using var destConn = await CreateAndOpenSqlConnectionAsync(destination);
 
         int totalProcessed = 0;
-        foreach (var table in config.Tables)
+        foreach (var table in sourceConfig.Tables)
         {
             totalProcessed += await TransferTableAsync(sourceConn, destConn, source.Type, destination.Type, table);
         }
@@ -185,7 +185,7 @@ public sealed class IntegrationJobExecutor(
         bool exists = await CheckTableExistsAsync(destConn, destType, tableConfig.Name);
         if (exists) return;
 
-        throw new InvalidOperationException($"Target table '{tableConfig.Name}' does not exist on destination. Please create it or use Auto-Sync (TBD).");
+        throw new InvalidOperationException($"Target table '{tableConfig.Name}' does not exist on destination.");
     }
 
     private async Task<bool> CheckTableExistsAsync(DbConnection conn, ConnectorType type, string tableName)
@@ -223,42 +223,53 @@ public sealed class IntegrationJobExecutor(
             Directory.CreateDirectory(directory);
         }
 
+        var sqlConfig = GetSqlConfig(sqlConnector);
         await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
         
-        var table = "UnknownTable"; // Placeholder
-
-        await using var command = sqlConnection.CreateCommand();
-        command.CommandText = sqlConnector.Type == ConnectorType.SqlServer 
-            ? $"SELECT * FROM [{table}]" 
-            : $"SELECT * FROM \"{table}\"";
-
-        await using var reader = await command.ExecuteReaderAsync();
-        await using var writer = new StreamWriter(csvPath, false, Encoding.UTF8);
-        await using var csvWriter = new CsvWriter(writer, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
+        int totalProcessed = 0;
+        foreach (var tableConfig in sqlConfig.Tables)
         {
-            Delimiter = csvConnector.CsvDelimiter
-        });
+            var fields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
+            var sourceTable = QuoteIdentifier(sqlConnector.Type, tableConfig.Name);
 
-        for (var index = 0; index < reader.FieldCount; index++)
-        {
-            csvWriter.WriteField(reader.GetName(index));
-        }
+            await using var command = sqlConnection.CreateCommand();
+            command.CommandText = $"SELECT {fields} FROM {sourceTable}";
 
-        await csvWriter.NextRecordAsync();
+            await using var reader = await command.ExecuteReaderAsync();
+            
+            // For multi-table to CSV, we might want separate files or append. 
+            // For now, let's just use the path as-is, which might overwrite if multiple tables are selected.
+            // A better way would be one file per table: path_TableName.csv
+            var tableCsvPath = sqlConfig.Tables.Count > 1 
+                ? Path.Combine(directory!, $"{Path.GetFileNameWithoutExtension(csvPath)}_{tableConfig.Name}{Path.GetExtension(csvPath)}")
+                : csvPath;
 
-        var count = 0;
-        while (await reader.ReadAsync())
-        {
+            await using var writer = new StreamWriter(tableCsvPath, false, Encoding.UTF8);
+            await using var csvWriter = new CsvWriter(writer, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
+            {
+                Delimiter = csvConnector.CsvDelimiter
+            });
+
             for (var index = 0; index < reader.FieldCount; index++)
             {
-                csvWriter.WriteField(reader[index]);
+                csvWriter.WriteField(reader.GetName(index));
             }
 
             await csvWriter.NextRecordAsync();
-            count++;
+
+            while (await reader.ReadAsync())
+            {
+                for (var index = 0; index < reader.FieldCount; index++)
+                {
+                    csvWriter.WriteField(reader[index]);
+                }
+
+                await csvWriter.NextRecordAsync();
+                totalProcessed++;
+            }
         }
 
-        return count;
+        return totalProcessed;
     }
 
     private async Task<int> ExecuteCsvToSqlAsync(Connector csvConnector, Connector sqlConnector)
@@ -269,9 +280,17 @@ public sealed class IntegrationJobExecutor(
             throw new InvalidOperationException("CSV source path does not exist.");
         }
 
-        await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        var sqlConfig = GetSqlConfig(sqlConnector);
+        if (sqlConfig.Tables.Count == 0)
+        {
+             throw new InvalidOperationException("SQL target requires at least one table configuration.");
+        }
+        
+        // For CSV -> SQL, we assume the CSV maps to the first table in the config for now.
+        var tableConfig = sqlConfig.Tables[0];
+        var table = tableConfig.Name;
 
-        var table = "UnknownTable"; // Placeholder
+        await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
         var delimiter = string.IsNullOrEmpty(csvConnector.CsvDelimiter) ? "," : csvConnector.CsvDelimiter;
 
         using var streamReader = new StreamReader(csvPath);
@@ -293,32 +312,27 @@ public sealed class IntegrationJobExecutor(
             return 0;
         }
 
-        string quotedColumns, parametersSql;
-        if (sqlConnector.Type == ConnectorType.SqlServer)
+        // Only insert fields that are both in the CSV and in the SQL config
+        var commonFields = headers.Intersect(tableConfig.Fields, StringComparer.OrdinalIgnoreCase).ToList();
+        if (commonFields.Count == 0)
         {
-            quotedColumns = string.Join(",", headers.Select(header => $"[{header}]"));
-            parametersSql = string.Join(",", headers.Select((_, index) => $"@p{index}"));
+            throw new InvalidOperationException($"No matching fields found between CSV and SQL table '{table}'.");
         }
-        else
-        {
-            quotedColumns = string.Join(",", headers.Select(header => $"\"{header}\""));
-            parametersSql = string.Join(",", headers.Select((_, index) => $"@p{index}"));
-        }
+
+        string quotedColumns = string.Join(",", commonFields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
+        string parametersSql = string.Join(",", commonFields.Select((_, index) => $"@p{index}"));
         
-        var commandText = $"INSERT INTO [{table}] ({quotedColumns}) VALUES ({parametersSql})";
-        if (sqlConnector.Type == ConnectorType.Postgres)
-        {
-            commandText = $"INSERT INTO \"{table}\" ({quotedColumns}) VALUES ({parametersSql})";
-        }
+        var commandText = $"INSERT INTO {QuoteIdentifier(sqlConnector.Type, table)} ({quotedColumns}) VALUES ({parametersSql})";
 
         var inserted = 0;
         while (await csvReader.ReadAsync())
         {
             await using var insertCommand = sqlConnection.CreateCommand();
             insertCommand.CommandText = commandText;
-            for (var index = 0; index < headers.Length; index++)
+            for (var index = 0; index < commonFields.Count; index++)
             {
-                var value = csvReader.GetField(index);
+                var fieldName = commonFields[index];
+                var value = csvReader.GetField(fieldName);
                 var param = insertCommand.CreateParameter();
                 param.ParameterName = $"@p{index}";
                 param.Value = value ?? (object)DBNull.Value;
@@ -343,6 +357,17 @@ public sealed class IntegrationJobExecutor(
 
         await connection.OpenAsync();
         return connection;
+    }
+
+    private SqlConfig GetSqlConfig(Connector connector)
+    {
+        if (string.IsNullOrWhiteSpace(connector.SqlConfigJson))
+        {
+             throw new InvalidOperationException($"SQL configuration is missing for connector '{connector.Name}'.");
+        }
+
+        return JsonSerializer.Deserialize<SqlConfig>(connector.SqlConfigJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException($"Invalid SQL configuration for connector '{connector.Name}'.");
     }
 
     private string BuildSqlServerConnectionString(Connector connector)

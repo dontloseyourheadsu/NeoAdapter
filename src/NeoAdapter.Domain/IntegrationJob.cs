@@ -6,10 +6,6 @@ public sealed class IntegrationJob
 
     public string Name { get; set; } = string.Empty;
 
-    public Guid SourceConnectorId { get; set; }
-
-    public Guid DestinationConnectorId { get; set; }
-
     public Guid? OwnerUserId { get; set; }
 
     public Guid? OwnerGroupId { get; set; }
@@ -24,7 +20,5 @@ public sealed class IntegrationJob
 
     public DateTimeOffset UpdatedAtUtc { get; set; }
 
-    public Connector? SourceConnector { get; set; }
-
-    public Connector? DestinationConnector { get; set; }
+    public ICollection<IntegrationJobStep> Steps { get; set; } = new List<IntegrationJobStep>();
 }

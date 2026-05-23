@@ -4,15 +4,48 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:dashboard="using:NeoAdapter.Contracts.Dashboard"
              xmlns:vm="using:NeoAdapter.Frontend.ViewModels"
+             xmlns:lvc="using:LiveChartsCore.SkiaSharpView.Avalonia"
              mc:Ignorable="d"
              d:DesignWidth="1200"
              d:DesignHeight="820"
              x:Class="NeoAdapter.Frontend.Views.DashboardView"
              x:DataType="vm:MainViewModel">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Spacing="14">
+        <StackPanel Spacing="18">
             <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource NeoDangerBrush}" />
             <TextBlock Text="{Binding StatusMessage}" Foreground="{DynamicResource NeoAccentBrush}" />
+
+            <!-- Trends and Filters -->
+            <Grid ColumnDefinitions="2*,*" ColumnSpacing="12">
+                <Border Classes="panel" Height="320" Padding="14">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="Execution Trends (Last 7 Days)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <lvc:CartesianChart Series="{Binding DashboardSeries}" XAxes="{Binding DashboardXAxes}" />
+                    </DockPanel>
+                </Border>
+
+                <Border Grid.Column="1" Classes="panel" Padding="14">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Quick Filters" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="By Organization" Classes="muted" FontSize="12" />
+                            <ComboBox HorizontalAlignment="Stretch" SelectedItem="{Binding SelectedFilterOrganizationId}">
+                                <ComboBoxItem Content="All Organizations" />
+                            </ComboBox>
+                        </StackPanel>
+                        
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="By Group" Classes="muted" FontSize="12" />
+                            <ComboBox HorizontalAlignment="Stretch" SelectedItem="{Binding SelectedFilterGroupId}">
+                                <ComboBoxItem Content="All Groups" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <Button Content="Apply Filters" Command="{Binding RefreshCommand}" Classes="primary-btn" HorizontalAlignment="Stretch" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
 
             <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
                 <Border Classes="metric-card" Padding="14">

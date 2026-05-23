@@ -21,14 +21,6 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
         builder.HasIndex(job => job.Name)
             .IsUnique();
 
-        builder.Property(job => job.SourceConnectorId)
-            .HasColumnName("source_connector_id")
-            .IsRequired();
-
-        builder.Property(job => job.DestinationConnectorId)
-            .HasColumnName("destination_connector_id")
-            .IsRequired();
-
         builder.Property(job => job.OwnerUserId)
             .HasColumnName("owner_user_id");
 
@@ -55,16 +47,6 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
             .HasColumnName("updated_at_utc")
             .HasColumnType("timestamp with time zone")
             .IsRequired();
-
-        builder.HasOne(job => job.SourceConnector)
-            .WithMany()
-            .HasForeignKey(job => job.SourceConnectorId)
-            .OnDelete(DeleteBehavior.Restrict);
-
-        builder.HasOne(job => job.DestinationConnector)
-            .WithMany()
-            .HasForeignKey(job => job.DestinationConnectorId)
-            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne<UserAccount>()
             .WithMany()

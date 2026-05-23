@@ -6,6 +6,7 @@ using Avalonia.Data.Core.Plugins;
 using System.Linq;
 using System.Net.Http.Headers;
 using System.Net.Http;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using NeoAdapter.Frontend.Services;
@@ -113,6 +114,13 @@ public partial class App : Application
         var connectorApiClient = new ConnectorApiClient(httpClient);
         var integrationJobsApiClient = new IntegrationJobsApiClient(httpClient);
         var tokenStorage = new TokenStorage();
-        return new MainViewModel(httpClient, authApiClient, dashboardApiClient, connectorApiClient, integrationJobsApiClient, tokenStorage);
+        var viewModel = new MainViewModel(httpClient, authApiClient, dashboardApiClient, connectorApiClient, integrationJobsApiClient, tokenStorage);
+
+        // Use a background task to start auto-login without blocking UI thread but in a controlled way
+        Task.Run(async () => {
+            try { await viewModel.TryAutoLoginAsync(); } catch { }
+        });
+
+        return viewModel;
         }
         }

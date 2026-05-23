@@ -107,146 +107,161 @@ using (var scope = app.Services.CreateScope())
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
     var integrationJobScheduler = scope.ServiceProvider.GetRequiredService<IIntegrationJobScheduler>();
     
-    // In dev, let's just make sure the schema matches our models.
-    // For simplicity, we'll try to drop if requested or just ensure created.
-    // Given the previous manual approach, we'll update it.
-    
-    await dbContext.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS organizations (id uuid PRIMARY KEY, name character varying(120) NOT NULL UNIQUE, created_at_utc timestamp with time zone NOT NULL);");
-    await dbContext.Database.ExecuteSqlRawAsync(@"CREATE TABLE IF NOT EXISTS groups (
-        id uuid PRIMARY KEY, 
-        name character varying(120) NOT NULL, 
-        organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, 
-        creator_user_id uuid NOT NULL, 
-        created_at_utc timestamp with time zone NOT NULL
-    );");
-    
-    await dbContext.Database.ExecuteSqlRawAsync(@"
-        CREATE TABLE IF NOT EXISTS connectors (
-            id uuid PRIMARY KEY,
-            name character varying(120) NOT NULL UNIQUE,
-            type character varying(16) NOT NULL,
-            sql_host character varying(255),
-            sql_port integer,
-            sql_database character varying(255),
-            sql_username character varying(255),
-            sql_password character varying(255),
-            sql_config_json jsonb,
-            sql_trust_server_certificate boolean NOT NULL DEFAULT false,
-            csv_path character varying(1000),
-            csv_delimiter character varying(4) NOT NULL DEFAULT ',',
-            created_at_utc timestamp with time zone NOT NULL,
-            updated_at_utc timestamp with time zone NOT NULL
-        );
-    ");
+    Console.WriteLine("Initializing database schema and seed data...");
+    try 
+    {
+        await dbContext.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS organizations (id uuid PRIMARY KEY, name character varying(120) NOT NULL UNIQUE, created_at_utc timestamp with time zone NOT NULL);");
+        
+        await dbContext.Database.ExecuteSqlRawAsync(@"CREATE TABLE IF NOT EXISTS groups (
+            id uuid PRIMARY KEY, 
+            name character varying(120) NOT NULL, 
+            organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, 
+            creator_user_id uuid NOT NULL, 
+            created_at_utc timestamp with time zone NOT NULL
+        );");
+        
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS connectors (
+                id uuid PRIMARY KEY,
+                name character varying(120) NOT NULL UNIQUE,
+                type character varying(16) NOT NULL,
+                sql_host character varying(255),
+                sql_port integer,
+                sql_database character varying(255),
+                sql_username character varying(255),
+                sql_password character varying(255),
+                sql_config_json jsonb,
+                sql_trust_server_certificate boolean NOT NULL DEFAULT false,
+                csv_path character varying(1000),
+                csv_delimiter character varying(4) NOT NULL DEFAULT ',',
+                created_at_utc timestamp with time zone NOT NULL,
+                updated_at_utc timestamp with time zone NOT NULL
+            );
+        ");
 
-    // Check if old columns exist and migrate if needed
-    await dbContext.Database.ExecuteSqlRawAsync(@"
-        DO $$ 
-        BEGIN 
-            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='connectors' AND column_name='sql_server') THEN
-                ALTER TABLE connectors RENAME COLUMN sql_server TO sql_host;
-            END IF;
-        END $$;");
-    
-    // Fix legacy ConnectorType values
-    await dbContext.Database.ExecuteSqlRawAsync("UPDATE connectors SET type = 'SqlServer' WHERE type = 'Sql';");
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            DO $$ 
+            BEGIN 
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='connectors' AND column_name='sql_server') THEN
+                    ALTER TABLE connectors RENAME COLUMN sql_server TO sql_host;
+                END IF;
+            END $$;");
+        
+        await dbContext.Database.ExecuteSqlRawAsync("UPDATE connectors SET type = 'SqlServer' WHERE type = 'Sql';");
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sql_config_json jsonb;"); } catch {}
 
-    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sql_config_json jsonb;"); } catch {}
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_jobs (
+                id uuid PRIMARY KEY,
+                name character varying(120) NOT NULL UNIQUE,
+                owner_user_id uuid,
+                owner_group_id uuid REFERENCES groups(id) ON DELETE CASCADE,
+                owner_organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
+                is_enabled boolean NOT NULL,
+                cron_expression character varying(120),
+                created_at_utc timestamp with time zone NOT NULL,
+                updated_at_utc timestamp with time zone NOT NULL
+            );
+        ");
 
-    await dbContext.Database.ExecuteSqlRawAsync(@"
-        CREATE TABLE IF NOT EXISTS integration_jobs (
-            id uuid PRIMARY KEY,
-            name character varying(120) NOT NULL UNIQUE,
-            source_connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE RESTRICT,
-            destination_connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE RESTRICT,
-            owner_user_id uuid,
-            owner_group_id uuid REFERENCES groups(id) ON DELETE CASCADE,
-            owner_organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
-            is_enabled boolean NOT NULL,
-            cron_expression character varying(120),
-            created_at_utc timestamp with time zone NOT NULL,
-            updated_at_utc timestamp with time zone NOT NULL
-        );
-    ");
-    
-    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS owner_user_id uuid;"); } catch {}
-    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS owner_group_id uuid REFERENCES groups(id) ON DELETE CASCADE;"); } catch {}
-    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS owner_organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE;"); } catch {}
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_job_steps (
+                id uuid PRIMARY KEY,
+                integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
+                order_index integer NOT NULL,
+                source_connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE RESTRICT,
+                destination_connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE RESTRICT
+            );
+        ");
+        
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            DO $$ 
+            BEGIN 
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='integration_jobs' AND column_name='source_connector_id') THEN
+                    ALTER TABLE integration_jobs DROP COLUMN source_connector_id;
+                END IF;
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='integration_jobs' AND column_name='destination_connector_id') THEN
+                    ALTER TABLE integration_jobs DROP COLUMN destination_connector_id;
+                END IF;
+            END $$;");
 
-    await dbContext.Database.ExecuteSqlRawAsync(@"
-        CREATE TABLE IF NOT EXISTS integration_job_runs (
-            id uuid PRIMARY KEY,
-            integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
-            status character varying(32) NOT NULL,
-            message character varying(1000) NOT NULL,
-            started_at_utc timestamp with time zone NOT NULL,
-            finished_at_utc timestamp with time zone,
-            records_processed integer NOT NULL DEFAULT 0,
-            hangfire_job_id character varying(64)
-        );
-    ");
-    
-    await dbContext.Database.ExecuteSqlRawAsync(@"
-        CREATE TABLE IF NOT EXISTS user_accounts (
-            id uuid PRIMARY KEY,
-            username character varying(80) NOT NULL UNIQUE,
-            password_hash character varying(200) NOT NULL,
-            password_salt character varying(200) NOT NULL,
-            organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
-            group_id uuid REFERENCES groups(id) ON DELETE SET NULL,
-            role character varying(20) NOT NULL DEFAULT 'User',
-            created_at_utc timestamp with time zone NOT NULL,
-            last_login_at_utc timestamp with time zone
-        );
-    ");
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_job_runs (
+                id uuid PRIMARY KEY,
+                integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
+                status character varying(32) NOT NULL,
+                message character varying(1000) NOT NULL,
+                started_at_utc timestamp with time zone NOT NULL,
+                finished_at_utc timestamp with time zone,
+                records_processed integer NOT NULL DEFAULT 0,
+                hangfire_job_id character varying(64)
+            );
+        ");
+        
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS user_accounts (
+                id uuid PRIMARY KEY,
+                username character varying(80) NOT NULL UNIQUE,
+                password_hash character varying(200) NOT NULL,
+                password_salt character varying(200) NOT NULL,
+                organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+                group_id uuid REFERENCES groups(id) ON DELETE SET NULL,
+                role character varying(20) NOT NULL DEFAULT 'User',
+                created_at_utc timestamp with time zone NOT NULL,
+                last_login_at_utc timestamp with time zone
+            );
+        ");
 
-    await dbContext.Database.ExecuteSqlRawAsync(@"
-        CREATE TABLE IF NOT EXISTS user_refresh_tokens (
-            id uuid PRIMARY KEY,
-            user_id uuid NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
-            token character varying(500) NOT NULL UNIQUE,
-            expires_at_utc timestamp with time zone NOT NULL,
-            created_at_utc timestamp with time zone NOT NULL,
-            is_revoked boolean NOT NULL DEFAULT false,
-            is_used boolean NOT NULL DEFAULT false
-        );
-    ");
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS user_refresh_tokens (
+                id uuid PRIMARY KEY,
+                user_id uuid NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                token character varying(500) NOT NULL UNIQUE,
+                expires_at_utc timestamp with time zone NOT NULL,
+                created_at_utc timestamp with time zone NOT NULL,
+                is_revoked boolean NOT NULL DEFAULT false,
+                is_used boolean NOT NULL DEFAULT false
+            );
+        ");
 
-    await dbContext.Database.ExecuteSqlRawAsync(@"
-        DO $$ 
-        DECLARE 
-            default_org_id uuid;
-        BEGIN 
-            -- 1. Ensure a default organization exists
-            IF NOT EXISTS (SELECT 1 FROM organizations) THEN
-                default_org_id := '00000000-0000-0000-0000-000000000001';
-                INSERT INTO organizations (id, name, created_at_utc) 
-                VALUES (default_org_id, 'Default Organization', now());
-            ELSE
-                SELECT id INTO default_org_id FROM organizations LIMIT 1;
-            END IF;
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            DO $$ 
+            DECLARE 
+                default_org_id uuid;
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM organizations) THEN
+                    default_org_id := '00000000-0000-0000-0000-000000000001';
+                    INSERT INTO organizations (id, name, created_at_utc) 
+                    VALUES (default_org_id, 'NeoAdapter', now());
+                ELSE
+                    UPDATE organizations SET name = 'NeoAdapter' WHERE name = 'Default Organization' OR name = 'NeoAdapter Default Org';
+                    SELECT id INTO default_org_id FROM organizations WHERE name = 'NeoAdapter' LIMIT 1;
+                END IF;
 
-            -- 2. Add columns if they don't exist
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='organization_id') THEN
-                ALTER TABLE user_accounts ADD COLUMN organization_id uuid REFERENCES organizations(id) ON DELETE RESTRICT;
-            END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='organization_id') THEN
+                    ALTER TABLE user_accounts ADD COLUMN organization_id uuid REFERENCES organizations(id) ON DELETE RESTRICT;
+                END IF;
 
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role') THEN
-                ALTER TABLE user_accounts ADD COLUMN role character varying(20) NOT NULL DEFAULT 'User';
-            END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role') THEN
+                    ALTER TABLE user_accounts ADD COLUMN role character varying(20) NOT NULL DEFAULT 'User';
+                END IF;
 
-            -- 3. Backfill NULL organization_id
-            UPDATE user_accounts SET organization_id = default_org_id WHERE organization_id IS NULL;
+                UPDATE user_accounts SET organization_id = default_org_id WHERE organization_id IS NULL;
+                ALTER TABLE user_accounts ALTER COLUMN organization_id SET NOT NULL;
+            END $$;");
 
-            -- 4. Enforce NOT NULL if not already
-            ALTER TABLE user_accounts ALTER COLUMN organization_id SET NOT NULL;
-        END $$;");
-
-    await dbContext.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS ix_integration_job_runs_job_started ON integration_job_runs (integration_job_id, started_at_utc);");
-    
-    await NeoAdapterSeedData.SeedAsync(dbContext, sqlSecretProtector, passwordHasher, CancellationToken.None);
-
-    await integrationJobScheduler.SyncAllAsync(CancellationToken.None);
+        await dbContext.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS ix_integration_job_runs_job_started ON integration_job_runs (integration_job_id, started_at_utc);");
+        
+        await NeoAdapterSeedData.SeedAsync(dbContext, sqlSecretProtector, passwordHasher, CancellationToken.None);
+        await integrationJobScheduler.SyncAllAsync(CancellationToken.None);
+        
+        Console.WriteLine("Database initialization completed successfully.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Database initialization failed: {ex.Message}");
+        // Don't throw, let the app start but it might be in a degraded state.
+    }
 }
 
 if (!app.Environment.IsDevelopment())
