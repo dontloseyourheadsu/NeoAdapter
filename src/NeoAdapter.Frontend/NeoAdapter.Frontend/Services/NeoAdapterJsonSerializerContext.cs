@@ -19,6 +19,7 @@ namespace NeoAdapter.Frontend.Services;
 [JsonSerializable(typeof(TestConnectorResponse))]
 [JsonSerializable(typeof(IReadOnlyList<ConnectorDto>))]
 [JsonSerializable(typeof(DashboardResponse))]
+[JsonSerializable(typeof(DashboardFilterRequest))]
 [JsonSerializable(typeof(IntegrationJobDto))]
 [JsonSerializable(typeof(CreateIntegrationJobRequest))]
 [JsonSerializable(typeof(EnqueueIntegrationJobResponse))]

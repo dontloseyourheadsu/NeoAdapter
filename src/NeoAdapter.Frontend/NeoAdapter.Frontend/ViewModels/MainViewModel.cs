@@ -9,6 +9,10 @@ using System.Threading.Tasks;
 using NeoAdapter.Contracts.Auth;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LiveChartsCore;
+using LiveChartsCore.SkiaSharpView;
+using LiveChartsCore.SkiaSharpView.Painting;
+using SkiaSharp;
 using NeoAdapter.Contracts.Connectors;
 using NeoAdapter.Contracts.Dashboard;
 using NeoAdapter.Contracts.IntegrationJobs;
@@ -18,6 +22,23 @@ namespace NeoAdapter.Frontend.ViewModels;
 
 public partial class MainViewModel : ViewModelBase, IDisposable
 {
+    // ... rest of the file ...
+    [ObservableProperty]
+    private Guid? _selectedFilterOrganizationId;
+
+    [ObservableProperty]
+    private Guid? _selectedFilterGroupId;
+
+    [ObservableProperty]
+    private Guid? _selectedFilterUserId;
+
+    public ISeries[] DashboardSeries { get; } = 
+    [
+        new LineSeries<int> { Values = new List<int> { 0, 0, 0, 0, 0, 0, 0 }, Name = "Successful", Stroke = new SolidColorPaint(SKColors.SpringGreen) { StrokeThickness = 2 } },
+        new LineSeries<int> { Values = new List<int> { 0, 0, 0, 0, 0, 0, 0 }, Name = "Failed", Stroke = new SolidColorPaint(SKColors.Crimson) { StrokeThickness = 2 } }
+    ];
+
+    public Axis[] DashboardXAxes { get; } = [new Axis { LabelsRotation = 15 }];
     private readonly HttpClient _httpClient;
     private readonly AuthApiClient _authApiClient;
     private readonly DashboardApiClient _dashboardApiClient;
@@ -64,8 +85,6 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         TestConnectorCommand = new AsyncRelayCommand(() => TestConnectorAsync(_refreshCts.Token));
         CreateIntegrationJobCommand = new AsyncRelayCommand(() => CreateIntegrationJobAsync(_refreshCts.Token));
         RunIntegrationJobCommand = new AsyncRelayCommand<IntegrationJobDto>(RunIntegrationJobAsync);
-
-        _ = TryAutoLoginAsync();
     }
 
     public ObservableCollection<DashboardJobSummaryItem> DashboardJobs { get; } = [];
@@ -246,7 +265,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
         try
         {
-            var dashboardTask = _dashboardApiClient.GetDashboardAsync(cancellationToken);
+            var filter = new DashboardFilterRequest(SelectedFilterOrganizationId, SelectedFilterGroupId, SelectedFilterUserId);
+            var dashboardTask = _dashboardApiClient.GetDashboardAsync(filter, cancellationToken);
             var connectorsTask = _connectorApiClient.GetAllAsync(cancellationToken);
             var jobsTask = _integrationJobsApiClient.GetAllAsync(cancellationToken);
 
@@ -262,6 +282,15 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                 LastUpdated = dashboard.GeneratedAtUtc.ToLocalTime().ToString("HH:mm:ss");
                 ReplaceAll(DashboardJobs, dashboard.Jobs);
                 ReplaceAll(DashboardRuns, dashboard.RecentRuns.OrderByDescending(run => run.TimestampUtc));
+
+                // Update Chart
+                if (DashboardSeries[0] is LineSeries<int> successSeries)
+                    successSeries.Values = dashboard.Analytics.Select(a => a.SuccessfulRuns).ToList();
+                
+                if (DashboardSeries[1] is LineSeries<int> failSeries)
+                    failSeries.Values = dashboard.Analytics.Select(a => a.FailedRuns).ToList();
+
+                DashboardXAxes[0].Labels = dashboard.Analytics.Select(a => a.Date.ToLocalTime().ToString("MMM dd")).ToList();
             }
 
             ReplaceAll(Connectors, connectorsTask.Result);
@@ -371,6 +400,9 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private async Task CreateIntegrationJobAsync(CancellationToken cancellationToken)
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken)) return;
+        
+        // This is a temporary shim to fix the build. 
+        // Real multi-step UI will replace this in the next phase.
         if (SelectedSourceConnector is null || SelectedDestinationConnector is null)
         {
             ErrorMessage = "Select both source and destination connectors.";
@@ -379,10 +411,39 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
         try
         {
+            var steps = new List<CreateIntegrationJobStepRequest>
+            {
+                new CreateIntegrationJobStepRequest(
+                    0,
+                    SelectedSourceConnector.Type,
+                    SelectedSourceConnector.Sql != null 
+                        ? new SqlConnectorSettingsInputDto(
+                            SelectedSourceConnector.Sql.Host,
+                            SelectedSourceConnector.Sql.Port,
+                            SelectedSourceConnector.Sql.Database,
+                            SelectedSourceConnector.Sql.Username,
+                            string.Empty, // Password not available in DTO for security
+                            SelectedSourceConnector.Sql.TrustServerCertificate,
+                            SelectedSourceConnector.Sql.ConfigJson)
+                        : null,
+                    SelectedSourceConnector.Csv,
+                    SelectedDestinationConnector.Type,
+                    SelectedDestinationConnector.Sql != null
+                        ? new SqlConnectorSettingsInputDto(
+                            SelectedDestinationConnector.Sql.Host,
+                            SelectedDestinationConnector.Sql.Port,
+                            SelectedDestinationConnector.Sql.Database,
+                            SelectedDestinationConnector.Sql.Username,
+                            string.Empty, // Password not available in DTO for security
+                            SelectedDestinationConnector.Sql.TrustServerCertificate,
+                            SelectedDestinationConnector.Sql.ConfigJson)
+                        : null,
+                    SelectedDestinationConnector.Csv)
+            };
+
             var request = new CreateIntegrationJobRequest(
                 NewIntegrationJobName,
-                SelectedSourceConnector.Id,
-                SelectedDestinationConnector.Id,
+                steps,
                 NewIntegrationJobEnabled,
                 string.IsNullOrWhiteSpace(NewIntegrationJobCronExpression)
                     ? null
@@ -537,8 +598,10 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(IsNotAuthenticated));
     }
 
-    private async Task TryAutoLoginAsync()
+    public async Task TryAutoLoginAsync()
     {
+        if (IsAuthenticated || _isRefreshing) return;
+        
         var tokens = await _tokenStorage.LoadAsync();
         if (tokens is null) return;
 
