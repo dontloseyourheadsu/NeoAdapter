@@ -1,11 +1,17 @@
 using System.Data;
+using System.Data.Common;
 using System.Text;
+using System.Text.Json;
+using System.Linq;
+using System.IO;
 using CsvHelper;
 using CsvHelper.Configuration;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using NeoAdapter.Application.Database.Contexts;
 using NeoAdapter.Application.Security;
+using NeoAdapter.Domain;
+using Npgsql;
 
 namespace NeoAdapter.Application.IntegrationJobs;
 
@@ -13,6 +19,17 @@ public sealed class IntegrationJobExecutor(
     NeoAdapterDbContext dbContext,
     ISqlSecretProtector sqlSecretProtector) : IIntegrationJobExecutor
 {
+    private class SqlTableConfig
+    {
+        public string Name { get; set; } = string.Empty;
+        public List<string> Fields { get; set; } = new();
+    }
+
+    private class SqlConfig
+    {
+        public List<SqlTableConfig> Tables { get; set; } = new();
+    }
+
     public async Task ExecuteAsync(Guid integrationJobId)
     {
         var job = await dbContext.IntegrationJobs
@@ -25,7 +42,7 @@ public sealed class IntegrationJobExecutor(
             .Where(item => item.IntegrationJobId == integrationJobId)
             .OrderByDescending(item => item.StartedAtUtc)
             .FirstOrDefaultAsync(item => item.Status == "QUEUED")
-            ?? new Domain.IntegrationJobRun
+            ?? new IntegrationJobRun
             {
                 Id = Guid.NewGuid(),
                 IntegrationJobId = integrationJobId,
@@ -54,13 +71,17 @@ public sealed class IntegrationJobExecutor(
             var destination = job.DestinationConnector ?? throw new InvalidOperationException("Destination connector is missing.");
 
             int processed;
-            if (source.Type == Domain.ConnectorType.Sql && destination.Type == Domain.ConnectorType.Csv)
+            if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.Csv)
             {
                 processed = await ExecuteSqlToCsvAsync(source, destination);
             }
-            else if (source.Type == Domain.ConnectorType.Csv && destination.Type == Domain.ConnectorType.Sql)
+            else if (source.Type == ConnectorType.Csv && IsSqlConnector(destination.Type))
             {
                 processed = await ExecuteCsvToSqlAsync(source, destination);
+            }
+            else if (IsSqlConnector(source.Type) && IsSqlConnector(destination.Type))
+            {
+                processed = await ExecuteSqlToSqlAsync(source, destination);
             }
             else
             {
@@ -83,7 +104,112 @@ public sealed class IntegrationJobExecutor(
         }
     }
 
-    private async Task<int> ExecuteSqlToCsvAsync(Domain.Connector sqlConnector, Domain.Connector csvConnector)
+    private static bool IsSqlConnector(ConnectorType type) =>
+        type == ConnectorType.SqlServer || type == ConnectorType.Postgres;
+
+    private async Task<int> ExecuteSqlToSqlAsync(Connector source, Connector destination)
+    {
+        var configJson = source.SqlConfigJson ?? destination.SqlConfigJson;
+        if (string.IsNullOrWhiteSpace(configJson))
+        {
+            throw new InvalidOperationException("SQL to SQL migration requires configuration (tables and fields).");
+        }
+
+        var config = JsonSerializer.Deserialize<SqlConfig>(configJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (config == null || config.Tables.Count == 0)
+        {
+            return 0;
+        }
+
+        await using var sourceConn = await CreateAndOpenSqlConnectionAsync(source);
+        await using var destConn = await CreateAndOpenSqlConnectionAsync(destination);
+
+        int totalProcessed = 0;
+        foreach (var table in config.Tables)
+        {
+            totalProcessed += await TransferTableAsync(sourceConn, destConn, source.Type, destination.Type, table);
+        }
+
+        return totalProcessed;
+    }
+
+    private async Task<int> TransferTableAsync(
+        DbConnection sourceConn, 
+        DbConnection destConn, 
+        ConnectorType sourceType, 
+        ConnectorType destType, 
+        SqlTableConfig tableConfig)
+    {
+        await EnsureTargetTableExistsAsync(sourceConn, destConn, sourceType, destType, tableConfig);
+
+        var fields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(sourceType, f)));
+        var sourceTable = QuoteIdentifier(sourceType, tableConfig.Name);
+        
+        await using var selectCmd = sourceConn.CreateCommand();
+        selectCmd.CommandText = $"SELECT {fields} FROM {sourceTable}";
+        
+        await using var reader = await selectCmd.ExecuteReaderAsync();
+        
+        var destFields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(destType, f)));
+        var placeholders = string.Join(", ", tableConfig.Fields.Select((_, i) => $"@p{i}"));
+        var destTable = QuoteIdentifier(destType, tableConfig.Name);
+        
+        var insertSql = $"INSERT INTO {destTable} ({destFields}) VALUES ({placeholders})";
+        
+        int count = 0;
+        while (await reader.ReadAsync())
+        {
+            await using var insertCmd = destConn.CreateCommand();
+            insertCmd.CommandText = insertSql;
+            for (int i = 0; i < tableConfig.Fields.Count; i++)
+            {
+                var param = insertCmd.CreateParameter();
+                param.ParameterName = $"@p{i}";
+                param.Value = reader[i] ?? DBNull.Value;
+                insertCmd.Parameters.Add(param);
+            }
+            await insertCmd.ExecuteNonQueryAsync();
+            count++;
+        }
+        
+        return count;
+    }
+
+    private async Task EnsureTargetTableExistsAsync(
+        DbConnection sourceConn, 
+        DbConnection destConn, 
+        ConnectorType sourceType, 
+        ConnectorType destType, 
+        SqlTableConfig tableConfig)
+    {
+        bool exists = await CheckTableExistsAsync(destConn, destType, tableConfig.Name);
+        if (exists) return;
+
+        throw new InvalidOperationException($"Target table '{tableConfig.Name}' does not exist on destination. Please create it or use Auto-Sync (TBD).");
+    }
+
+    private async Task<bool> CheckTableExistsAsync(DbConnection conn, ConnectorType type, string tableName)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = type == ConnectorType.SqlServer
+            ? "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @name"
+            : "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = @name";
+        
+        var param = cmd.CreateParameter();
+        param.ParameterName = "@name";
+        param.Value = tableName;
+        cmd.Parameters.Add(param);
+        
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result) > 0;
+    }
+
+    private string QuoteIdentifier(ConnectorType type, string identifier)
+    {
+        return type == ConnectorType.SqlServer ? $"[{identifier}]" : $"\"{identifier}\"";
+    }
+
+    private async Task<int> ExecuteSqlToCsvAsync(Connector sqlConnector, Connector csvConnector)
     {
         var csvPath = csvConnector.CsvPath;
         if (string.IsNullOrWhiteSpace(csvPath))
@@ -97,12 +223,14 @@ public sealed class IntegrationJobExecutor(
             Directory.CreateDirectory(directory);
         }
 
-        await using var sqlConnection = new SqlConnection(BuildSqlConnectionString(sqlConnector));
-        await sqlConnection.OpenAsync();
+        await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        
+        var table = "UnknownTable"; // Placeholder
 
-        var table = sqlConnector.SqlTable ?? throw new InvalidOperationException("SQL source table is required.");
         await using var command = sqlConnection.CreateCommand();
-        command.CommandText = $"SELECT * FROM [{table}]";
+        command.CommandText = sqlConnector.Type == ConnectorType.SqlServer 
+            ? $"SELECT * FROM [{table}]" 
+            : $"SELECT * FROM \"{table}\"";
 
         await using var reader = await command.ExecuteReaderAsync();
         await using var writer = new StreamWriter(csvPath, false, Encoding.UTF8);
@@ -133,7 +261,7 @@ public sealed class IntegrationJobExecutor(
         return count;
     }
 
-    private async Task<int> ExecuteCsvToSqlAsync(Domain.Connector csvConnector, Domain.Connector sqlConnector)
+    private async Task<int> ExecuteCsvToSqlAsync(Connector csvConnector, Connector sqlConnector)
     {
         var csvPath = csvConnector.CsvPath;
         if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
@@ -141,10 +269,9 @@ public sealed class IntegrationJobExecutor(
             throw new InvalidOperationException("CSV source path does not exist.");
         }
 
-        await using var sqlConnection = new SqlConnection(BuildSqlConnectionString(sqlConnector));
-        await sqlConnection.OpenAsync();
+        await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
 
-        var table = sqlConnector.SqlTable ?? throw new InvalidOperationException("SQL destination table is required.");
+        var table = "UnknownTable"; // Placeholder
         var delimiter = string.IsNullOrEmpty(csvConnector.CsvDelimiter) ? "," : csvConnector.CsvDelimiter;
 
         using var streamReader = new StreamReader(csvPath);
@@ -166,10 +293,23 @@ public sealed class IntegrationJobExecutor(
             return 0;
         }
 
-        var quotedColumns = string.Join(",", headers.Select(header => $"[{header}]"));
-        var parameterNames = headers.Select((_, index) => $"@p{index}").ToArray();
-        var parametersSql = string.Join(",", parameterNames);
+        string quotedColumns, parametersSql;
+        if (sqlConnector.Type == ConnectorType.SqlServer)
+        {
+            quotedColumns = string.Join(",", headers.Select(header => $"[{header}]"));
+            parametersSql = string.Join(",", headers.Select((_, index) => $"@p{index}"));
+        }
+        else
+        {
+            quotedColumns = string.Join(",", headers.Select(header => $"\"{header}\""));
+            parametersSql = string.Join(",", headers.Select((_, index) => $"@p{index}"));
+        }
+        
         var commandText = $"INSERT INTO [{table}] ({quotedColumns}) VALUES ({parametersSql})";
+        if (sqlConnector.Type == ConnectorType.Postgres)
+        {
+            commandText = $"INSERT INTO \"{table}\" ({quotedColumns}) VALUES ({parametersSql})";
+        }
 
         var inserted = 0;
         while (await csvReader.ReadAsync())
@@ -179,7 +319,10 @@ public sealed class IntegrationJobExecutor(
             for (var index = 0; index < headers.Length; index++)
             {
                 var value = csvReader.GetField(index);
-                insertCommand.Parameters.Add(new SqlParameter(parameterNames[index], value ?? (object)DBNull.Value));
+                var param = insertCommand.CreateParameter();
+                param.ParameterName = $"@p{index}";
+                param.Value = value ?? (object)DBNull.Value;
+                insertCommand.Parameters.Add(param);
             }
 
             await insertCommand.ExecuteNonQueryAsync();
@@ -189,16 +332,24 @@ public sealed class IntegrationJobExecutor(
         return inserted;
     }
 
-    private string BuildSqlConnectionString(Domain.Connector connector)
+    private async Task<DbConnection> CreateAndOpenSqlConnectionAsync(Connector connector)
     {
-        if (connector.Type != Domain.ConnectorType.Sql)
+        DbConnection connection = connector.Type switch
         {
-            throw new InvalidOperationException("Expected SQL connector.");
-        }
+            ConnectorType.SqlServer => new SqlConnection(BuildSqlServerConnectionString(connector)),
+            ConnectorType.Postgres => new NpgsqlConnection(BuildPostgresConnectionString(connector)),
+            _ => throw new InvalidOperationException("Expected SQL connector.")
+        };
 
+        await connection.OpenAsync();
+        return connection;
+    }
+
+    private string BuildSqlServerConnectionString(Connector connector)
+    {
         var builder = new SqlConnectionStringBuilder
         {
-            DataSource = $"{connector.SqlServer},{connector.SqlPort ?? 1433}",
+            DataSource = $"{connector.SqlHost},{connector.SqlPort ?? 1433}",
             InitialCatalog = connector.SqlDatabase,
             UserID = connector.SqlUsername,
             Password = sqlSecretProtector.Unprotect(connector.SqlPassword ?? string.Empty),
@@ -206,6 +357,22 @@ public sealed class IntegrationJobExecutor(
             TrustServerCertificate = connector.SqlTrustServerCertificate,
             IntegratedSecurity = false,
             ConnectTimeout = 30
+        };
+
+        return builder.ConnectionString;
+    }
+
+    private string BuildPostgresConnectionString(Connector connector)
+    {
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = connector.SqlHost,
+            Port = connector.SqlPort ?? 5432,
+            Database = connector.SqlDatabase,
+            Username = connector.SqlUsername,
+            Password = sqlSecretProtector.Unprotect(connector.SqlPassword ?? string.Empty),
+            TrustServerCertificate = connector.SqlTrustServerCertificate,
+            Timeout = 30
         };
 
         return builder.ConnectionString;

@@ -10,6 +10,12 @@ public sealed class IntegrationJob
 
     public Guid DestinationConnectorId { get; set; }
 
+    public Guid? OwnerUserId { get; set; }
+
+    public Guid? OwnerGroupId { get; set; }
+
+    public Guid? OwnerOrganizationId { get; set; }
+
     public bool IsEnabled { get; set; }
 
     public string? CronExpression { get; set; }

@@ -31,6 +31,19 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
             .HasMaxLength(200)
             .IsRequired();
 
+        builder.Property(user => user.OrganizationId)
+            .HasColumnName("organization_id")
+            .IsRequired();
+
+        builder.Property(user => user.GroupId)
+            .HasColumnName("group_id");
+
+        builder.Property(user => user.Role)
+            .HasColumnName("role")
+            .HasMaxLength(20)
+            .HasDefaultValue("User")
+            .IsRequired();
+
         builder.Property(user => user.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .HasColumnType("timestamp with time zone")
@@ -39,5 +52,15 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
         builder.Property(user => user.LastLoginAtUtc)
             .HasColumnName("last_login_at_utc")
             .HasColumnType("timestamp with time zone");
+
+        builder.HasOne(user => user.Organization)
+            .WithMany(org => org.Users)
+            .HasForeignKey(user => user.OrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(user => user.Group)
+            .WithMany(group => group.Members)
+            .HasForeignKey(user => user.GroupId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

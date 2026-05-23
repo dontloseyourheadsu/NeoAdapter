@@ -8,7 +8,7 @@ public sealed class Connector
 
     public ConnectorType Type { get; set; }
 
-    public string? SqlServer { get; set; }
+    public string? SqlHost { get; set; }
 
     public int? SqlPort { get; set; }
 
@@ -18,7 +18,7 @@ public sealed class Connector
 
     public string? SqlPassword { get; set; }
 
-    public string? SqlTable { get; set; }
+    public string? SqlConfigJson { get; set; } // JSON for tables/fields selection
 
     public bool SqlTrustServerCertificate { get; set; }
 

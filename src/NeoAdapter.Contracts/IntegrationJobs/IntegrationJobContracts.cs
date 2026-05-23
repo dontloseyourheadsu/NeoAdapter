@@ -21,7 +21,10 @@ public sealed record CreateIntegrationJobRequest(
     Guid SourceConnectorId,
     Guid DestinationConnectorId,
     bool IsEnabled,
-    string? CronExpression);
+    string? CronExpression,
+    Guid? OwnerUserId = null,
+    Guid? OwnerGroupId = null,
+    Guid? OwnerOrganizationId = null);
 
 public sealed record RunIntegrationJobRequest(Guid IntegrationJobId);
 

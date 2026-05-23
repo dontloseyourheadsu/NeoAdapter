@@ -69,7 +69,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<IntegrationJobDto> IntegrationJobs { get; } = [];
 
-    public IReadOnlyList<ConnectorType> ConnectorTypes { get; } = [ConnectorType.Sql, ConnectorType.Csv];
+    public IReadOnlyList<ConnectorType> ConnectorTypes { get; } = [ConnectorType.SqlServer, ConnectorType.Postgres, ConnectorType.Csv];
 
     public IAsyncRelayCommand RefreshCommand { get; }
 
@@ -132,7 +132,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private string _newConnectorName = string.Empty;
 
     [ObservableProperty]
-    private ConnectorType _newConnectorType = ConnectorType.Sql;
+    private ConnectorType _newConnectorType = ConnectorType.SqlServer;
 
     [ObservableProperty]
     private string _sqlServer = "localhost";
@@ -176,7 +176,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _newIntegrationJobCronExpression = string.Empty;
 
-    public bool IsSqlConnectorSelected => NewConnectorType == ConnectorType.Sql;
+    public bool IsSqlConnectorSelected => NewConnectorType == ConnectorType.SqlServer || NewConnectorType == ConnectorType.Postgres;
 
     public bool IsCsvConnectorSelected => NewConnectorType == ConnectorType.Csv;
 
@@ -294,8 +294,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                         SqlDatabase,
                         SqlUsername,
                         SqlPassword,
-                        SqlTable,
-                        SqlTrustServerCertificate)
+                        SqlTrustServerCertificate,
+                        null) // ConfigJson
                     : null,
                 IsCsvConnectorSelected
                     ? new CsvConnectorSettingsDto(CsvPath, CsvDelimiter)
@@ -333,8 +333,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                         SqlDatabase,
                         SqlUsername,
                         SqlPassword,
-                        SqlTable,
-                        SqlTrustServerCertificate)
+                        SqlTrustServerCertificate,
+                        null) // ConfigJson
                     : null,
                 IsCsvConnectorSelected
                     ? new CsvConnectorSettingsDto(CsvPath, CsvDelimiter)

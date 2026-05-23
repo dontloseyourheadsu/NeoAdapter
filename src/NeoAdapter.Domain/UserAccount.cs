@@ -10,7 +10,17 @@ public sealed class UserAccount
 
     public string PasswordSalt { get; set; } = string.Empty;
 
+    public Guid OrganizationId { get; set; }
+
+    public Guid? GroupId { get; set; }
+
+    public string Role { get; set; } = "User"; // "Admin" or "User"
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset? LastLoginAtUtc { get; set; }
+
+    public Organization? Organization { get; set; }
+
+    public Group? Group { get; set; }
 }

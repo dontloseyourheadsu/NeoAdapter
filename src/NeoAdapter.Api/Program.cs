@@ -106,18 +106,31 @@ using (var scope = app.Services.CreateScope())
     var sqlSecretProtector = scope.ServiceProvider.GetRequiredService<ISqlSecretProtector>();
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
     var integrationJobScheduler = scope.ServiceProvider.GetRequiredService<IIntegrationJobScheduler>();
-    await dbContext.Database.EnsureCreatedAsync();
+    
+    // In dev, let's just make sure the schema matches our models.
+    // For simplicity, we'll try to drop if requested or just ensure created.
+    // Given the previous manual approach, we'll update it.
+    
+    await dbContext.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS organizations (id uuid PRIMARY KEY, name character varying(120) NOT NULL UNIQUE, created_at_utc timestamp with time zone NOT NULL);");
+    await dbContext.Database.ExecuteSqlRawAsync(@"CREATE TABLE IF NOT EXISTS groups (
+        id uuid PRIMARY KEY, 
+        name character varying(120) NOT NULL, 
+        organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, 
+        creator_user_id uuid NOT NULL, 
+        created_at_utc timestamp with time zone NOT NULL
+    );");
+    
     await dbContext.Database.ExecuteSqlRawAsync(@"
         CREATE TABLE IF NOT EXISTS connectors (
             id uuid PRIMARY KEY,
             name character varying(120) NOT NULL UNIQUE,
             type character varying(16) NOT NULL,
-            sql_server character varying(255),
+            sql_host character varying(255),
             sql_port integer,
             sql_database character varying(255),
             sql_username character varying(255),
             sql_password character varying(255),
-            sql_table character varying(255),
+            sql_config_json jsonb,
             sql_trust_server_certificate boolean NOT NULL DEFAULT false,
             csv_path character varying(1000),
             csv_delimiter character varying(4) NOT NULL DEFAULT ',',
@@ -125,18 +138,37 @@ using (var scope = app.Services.CreateScope())
             updated_at_utc timestamp with time zone NOT NULL
         );
     ");
+
+    // Check if old columns exist and migrate if needed
+    await dbContext.Database.ExecuteSqlRawAsync(@"
+        DO $$ 
+        BEGIN 
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='connectors' AND column_name='sql_server') THEN
+                ALTER TABLE connectors RENAME COLUMN sql_server TO sql_host;
+            END IF;
+        END $$;");
+    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sql_config_json jsonb;"); } catch {}
+
     await dbContext.Database.ExecuteSqlRawAsync(@"
         CREATE TABLE IF NOT EXISTS integration_jobs (
             id uuid PRIMARY KEY,
             name character varying(120) NOT NULL UNIQUE,
             source_connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE RESTRICT,
             destination_connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE RESTRICT,
+            owner_user_id uuid,
+            owner_group_id uuid REFERENCES groups(id) ON DELETE CASCADE,
+            owner_organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
             is_enabled boolean NOT NULL,
             cron_expression character varying(120),
             created_at_utc timestamp with time zone NOT NULL,
             updated_at_utc timestamp with time zone NOT NULL
         );
     ");
+    
+    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS owner_user_id uuid;"); } catch {}
+    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS owner_group_id uuid REFERENCES groups(id) ON DELETE CASCADE;"); } catch {}
+    try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS owner_organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE;"); } catch {}
+
     await dbContext.Database.ExecuteSqlRawAsync(@"
         CREATE TABLE IF NOT EXISTS integration_job_runs (
             id uuid PRIMARY KEY,
@@ -149,72 +181,54 @@ using (var scope = app.Services.CreateScope())
             hangfire_job_id character varying(64)
         );
     ");
+    
     await dbContext.Database.ExecuteSqlRawAsync(@"
         CREATE TABLE IF NOT EXISTS user_accounts (
             id uuid PRIMARY KEY,
             username character varying(80) NOT NULL UNIQUE,
             password_hash character varying(200) NOT NULL,
             password_salt character varying(200) NOT NULL,
+            organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+            group_id uuid REFERENCES groups(id) ON DELETE SET NULL,
+            role character varying(20) NOT NULL DEFAULT 'User',
             created_at_utc timestamp with time zone NOT NULL,
             last_login_at_utc timestamp with time zone
         );
     ");
+
+    await dbContext.Database.ExecuteSqlRawAsync(@"
+        DO $$ 
+        DECLARE 
+            default_org_id uuid;
+        BEGIN 
+            -- 1. Ensure a default organization exists
+            IF NOT EXISTS (SELECT 1 FROM organizations) THEN
+                default_org_id := '00000000-0000-0000-0000-000000000001';
+                INSERT INTO organizations (id, name, created_at_utc) 
+                VALUES (default_org_id, 'Default Organization', now());
+            ELSE
+                SELECT id INTO default_org_id FROM organizations LIMIT 1;
+            END IF;
+
+            -- 2. Add columns if they don't exist
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='organization_id') THEN
+                ALTER TABLE user_accounts ADD COLUMN organization_id uuid REFERENCES organizations(id) ON DELETE RESTRICT;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role') THEN
+                ALTER TABLE user_accounts ADD COLUMN role character varying(20) NOT NULL DEFAULT 'User';
+            END IF;
+
+            -- 3. Backfill NULL organization_id
+            UPDATE user_accounts SET organization_id = default_org_id WHERE organization_id IS NULL;
+
+            -- 4. Enforce NOT NULL if not already
+            ALTER TABLE user_accounts ALTER COLUMN organization_id SET NOT NULL;
+        END $$;");
+
     await dbContext.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS ix_integration_job_runs_job_started ON integration_job_runs (integration_job_id, started_at_utc);");
-    await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE IF EXISTS integration_jobs ADD COLUMN IF NOT EXISTS cron_expression character varying(120);");
-    await NeoAdapterSeedData.SeedAsync(dbContext, sqlSecretProtector, CancellationToken.None);
-
-    if (app.Environment.IsDevelopment())
-    {
-        const string developmentAdminUsername = "admin";
-        const string developmentAdminPassword = "Admin123!";
-
-        var adminUser = await dbContext.UserAccounts
-            .FirstOrDefaultAsync(
-                user => user.Username.ToLower() == developmentAdminUsername,
-                CancellationToken.None);
-
-        if (adminUser is null)
-        {
-            var (hash, salt) = passwordHasher.HashPassword(developmentAdminPassword);
-            dbContext.UserAccounts.Add(new NeoAdapter.Domain.UserAccount
-            {
-                Id = Guid.NewGuid(),
-                Username = developmentAdminUsername,
-                PasswordHash = hash,
-                PasswordSalt = salt,
-                CreatedAtUtc = DateTimeOffset.UtcNow,
-                LastLoginAtUtc = DateTimeOffset.UtcNow
-            });
-            await dbContext.SaveChangesAsync();
-        }
-        else
-        {
-            var isExpectedPassword = passwordHasher.Verify(
-                developmentAdminPassword,
-                adminUser.PasswordHash,
-                adminUser.PasswordSalt);
-
-            var hasChanges = false;
-            if (!isExpectedPassword)
-            {
-                var (hash, salt) = passwordHasher.HashPassword(developmentAdminPassword);
-                adminUser.PasswordHash = hash;
-                adminUser.PasswordSalt = salt;
-                hasChanges = true;
-            }
-
-            if (!string.Equals(adminUser.Username, developmentAdminUsername, StringComparison.Ordinal))
-            {
-                adminUser.Username = developmentAdminUsername;
-                hasChanges = true;
-            }
-
-            if (hasChanges)
-            {
-                await dbContext.SaveChangesAsync();
-            }
-        }
-    }
+    
+    await NeoAdapterSeedData.SeedAsync(dbContext, sqlSecretProtector, passwordHasher, CancellationToken.None);
 
     await integrationJobScheduler.SyncAllAsync(CancellationToken.None);
 }

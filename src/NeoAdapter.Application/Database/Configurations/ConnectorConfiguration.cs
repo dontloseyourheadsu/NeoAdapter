@@ -27,8 +27,8 @@ public sealed class ConnectorConfiguration : IEntityTypeConfiguration<Connector>
             .HasMaxLength(16)
             .IsRequired();
 
-        builder.Property(connector => connector.SqlServer)
-            .HasColumnName("sql_server")
+        builder.Property(connector => connector.SqlHost)
+            .HasColumnName("sql_host")
             .HasMaxLength(255);
 
         builder.Property(connector => connector.SqlPort)
@@ -46,9 +46,9 @@ public sealed class ConnectorConfiguration : IEntityTypeConfiguration<Connector>
             .HasColumnName("sql_password")
             .HasMaxLength(255);
 
-        builder.Property(connector => connector.SqlTable)
-            .HasColumnName("sql_table")
-            .HasMaxLength(255);
+        builder.Property(connector => connector.SqlConfigJson)
+            .HasColumnName("sql_config_json")
+            .HasColumnType("jsonb");
 
         builder.Property(connector => connector.SqlTrustServerCertificate)
             .HasColumnName("sql_trust_server_certificate")

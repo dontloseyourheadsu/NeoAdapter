@@ -57,7 +57,13 @@ public sealed class IntegrationJobService(
 
         if (!IsSupportedDirection(source.Type, destination.Type))
         {
-            throw new InvalidOperationException("Only SQL->CSV and CSV->SQL integrations are currently supported.");
+            throw new InvalidOperationException("Unsupported connector direction.");
+        }
+
+        // Ownership validation
+        if (request.OwnerUserId == null && request.OwnerGroupId == null && request.OwnerOrganizationId == null)
+        {
+            throw new InvalidOperationException("Integration job must have an owner (User, Group, or Organization).");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -71,6 +77,9 @@ public sealed class IntegrationJobService(
             Name = trimmedName,
             SourceConnectorId = source.Id,
             DestinationConnectorId = destination.Id,
+            OwnerUserId = request.OwnerUserId,
+            OwnerGroupId = request.OwnerGroupId,
+            OwnerOrganizationId = request.OwnerOrganizationId,
             IsEnabled = request.IsEnabled,
             CronExpression = cronExpression,
             CreatedAtUtc = now,
@@ -119,8 +128,12 @@ public sealed class IntegrationJobService(
 
     private static bool IsSupportedDirection(ConnectorType source, ConnectorType destination)
     {
-        return (source == ConnectorType.Sql && destination == ConnectorType.Csv)
-               || (source == ConnectorType.Csv && destination == ConnectorType.Sql);
+        bool sourceIsSql = source == ConnectorType.SqlServer || source == ConnectorType.Postgres;
+        bool destIsSql = destination == ConnectorType.SqlServer || destination == ConnectorType.Postgres;
+        bool sourceIsCsv = source == ConnectorType.Csv;
+        bool destIsCsv = destination == ConnectorType.Csv;
+
+        return (sourceIsSql && destIsCsv) || (sourceIsCsv && destIsSql) || (sourceIsSql && destIsSql);
     }
 
     private static IntegrationJobDto MapToDto(IntegrationJob job, IntegrationJobRun? latestRun)
