@@ -29,6 +29,15 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
             .HasColumnName("destination_connector_id")
             .IsRequired();
 
+        builder.Property(job => job.OwnerUserId)
+            .HasColumnName("owner_user_id");
+
+        builder.Property(job => job.OwnerGroupId)
+            .HasColumnName("owner_group_id");
+
+        builder.Property(job => job.OwnerOrganizationId)
+            .HasColumnName("owner_organization_id");
+
         builder.Property(job => job.IsEnabled)
             .HasColumnName("is_enabled")
             .IsRequired();
@@ -56,5 +65,20 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
             .WithMany()
             .HasForeignKey(job => job.DestinationConnectorId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<UserAccount>()
+            .WithMany()
+            .HasForeignKey(job => job.OwnerUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<Group>()
+            .WithMany()
+            .HasForeignKey(job => job.OwnerGroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<Organization>()
+            .WithMany()
+            .HasForeignKey(job => job.OwnerOrganizationId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

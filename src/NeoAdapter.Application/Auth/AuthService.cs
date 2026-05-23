@@ -32,12 +32,20 @@ public sealed class AuthService(
         }
 
         var (hash, salt) = passwordHasher.HashPassword(request.Password);
+        
+        // In a real multi-tenant app, we might create a new Org or assign to a default one.
+        // For now, let's find the first organization to avoid FK errors.
+        var defaultOrg = await dbContext.Organizations.FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("No organizations found in the system. Registration is unavailable.");
+
         var user = new UserAccount
         {
             Id = Guid.NewGuid(),
             Username = username,
             PasswordHash = hash,
             PasswordSalt = salt,
+            OrganizationId = defaultOrg.Id,
+            Role = "User",
             CreatedAtUtc = DateTimeOffset.UtcNow,
             LastLoginAtUtc = DateTimeOffset.UtcNow
         };

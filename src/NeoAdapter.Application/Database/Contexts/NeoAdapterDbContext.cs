@@ -15,6 +15,10 @@ public sealed class NeoAdapterDbContext(DbContextOptions<NeoAdapterDbContext> op
 
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
 
+    public DbSet<Organization> Organizations => Set<Organization>();
+
+    public DbSet<Group> Groups => Set<Group>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(NeoAdapterDbContext).Assembly);
