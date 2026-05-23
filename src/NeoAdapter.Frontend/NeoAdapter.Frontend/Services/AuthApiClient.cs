@@ -55,6 +55,17 @@ public sealed class AuthApiClient(HttpClient httpClient)
         return await response.Content.ReadFromJsonAsync(NeoAdapterJsonTypeInfo.For<AuthResponse>(), cancellationToken);
     }
 
+    public async Task<AuthResponse?> RefreshAsync(RefreshTokenRequest request, CancellationToken cancellationToken)
+    {
+        var response = await PostWithFallbackAsync("api/auth/refresh", request, cancellationToken);
+        if (response is null || !response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync(NeoAdapterJsonTypeInfo.For<AuthResponse>(), cancellationToken);
+    }
+
     private async Task<HttpResponseMessage?> PostWithFallbackAsync<TRequest>(
         string relativeUrl,
         TRequest request,

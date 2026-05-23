@@ -2,7 +2,8 @@ namespace NeoAdapter.Contracts.Pipeline;
 
 public enum ConnectorType
 {
-    Sql,
+    SqlServer,
+    Postgres,
     Csv
 }
 
