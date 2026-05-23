@@ -51,5 +51,21 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
         {
             return Unauthorized(ex.Message);
         }
-    }
-}
+        }
+
+        [HttpPost("refresh")]
+        public async Task<ActionResult<AuthResponse>> Refresh(
+        [FromBody] RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+        {
+        try
+        {
+            var response = await authService.RefreshTokenAsync(request, cancellationToken);
+            return Ok(response);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Unauthorized(ex.Message);
+        }
+        }
+        }

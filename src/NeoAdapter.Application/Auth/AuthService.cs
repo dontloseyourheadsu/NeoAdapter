@@ -33,8 +33,6 @@ public sealed class AuthService(
 
         var (hash, salt) = passwordHasher.HashPassword(request.Password);
         
-        // In a real multi-tenant app, we might create a new Org or assign to a default one.
-        // For now, let's find the first organization to avoid FK errors.
         var defaultOrg = await dbContext.Organizations.FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException("No organizations found in the system. Registration is unavailable.");
 
@@ -53,8 +51,8 @@ public sealed class AuthService(
         dbContext.UserAccounts.Add(user);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        var token = jwtTokenService.CreateToken(user);
-        return new AuthResponse(user.Id, user.Username, token.Token, token.ExpiresAtUtc);
+        var accessToken = jwtTokenService.CreateAccessToken(user);
+        return new AuthResponse(user.Id, user.Username, accessToken.Token, accessToken.ExpiresAtUtc);
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
@@ -75,9 +73,75 @@ public sealed class AuthService(
         }
 
         user.LastLoginAtUtc = DateTimeOffset.UtcNow;
+        
+        var accessToken = jwtTokenService.CreateAccessToken(user);
+        string? refreshTokenValue = null;
+
+        if (request.RememberMe)
+        {
+            var refreshToken = jwtTokenService.CreateRefreshToken();
+            refreshTokenValue = refreshToken.Token;
+
+            dbContext.UserRefreshTokens.Add(new UserRefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                Token = refreshTokenValue,
+                ExpiresAtUtc = refreshToken.ExpiresAtUtc,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                IsRevoked = false,
+                IsUsed = false
+            });
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        var token = jwtTokenService.CreateToken(user);
-        return new AuthResponse(user.Id, user.Username, token.Token, token.ExpiresAtUtc);
+        return new AuthResponse(user.Id, user.Username, accessToken.Token, accessToken.ExpiresAtUtc, refreshTokenValue);
+    }
+
+    public async Task<AuthResponse> RefreshTokenAsync(RefreshTokenRequest request, CancellationToken cancellationToken)
+    {
+        var storedToken = await dbContext.UserRefreshTokens
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.Token == request.RefreshToken, cancellationToken);
+
+        if (storedToken == null || storedToken.IsRevoked || storedToken.IsUsed || storedToken.ExpiresAtUtc < DateTimeOffset.UtcNow)
+        {
+            throw new InvalidOperationException("Invalid or expired refresh token.");
+        }
+
+        if (storedToken.User == null)
+        {
+            throw new InvalidOperationException("User not found.");
+        }
+
+        // Mark as used
+        storedToken.IsUsed = true;
+        
+        // Generate new access token
+        var accessToken = jwtTokenService.CreateAccessToken(storedToken.User);
+        
+        // Generate new refresh token (rotation)
+        var newRefreshToken = jwtTokenService.CreateRefreshToken();
+        
+        dbContext.UserRefreshTokens.Add(new UserRefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = storedToken.UserId,
+            Token = newRefreshToken.Token,
+            ExpiresAtUtc = newRefreshToken.ExpiresAtUtc,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            IsRevoked = false,
+            IsUsed = false
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return new AuthResponse(
+            storedToken.User.Id, 
+            storedToken.User.Username, 
+            accessToken.Token, 
+            accessToken.ExpiresAtUtc, 
+            newRefreshToken.Token);
     }
 }
