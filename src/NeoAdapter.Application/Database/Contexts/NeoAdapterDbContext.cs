@@ -15,6 +15,8 @@ public sealed class NeoAdapterDbContext(DbContextOptions<NeoAdapterDbContext> op
 
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
 
+    public DbSet<UserRefreshToken> UserRefreshTokens => Set<UserRefreshToken>();
+
     public DbSet<Organization> Organizations => Set<Organization>();
 
     public DbSet<Group> Groups => Set<Group>();
