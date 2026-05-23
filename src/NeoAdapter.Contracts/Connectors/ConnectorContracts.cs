@@ -2,7 +2,8 @@ namespace NeoAdapter.Contracts.Connectors;
 
 public enum ConnectorType
 {
-    Sql,
+    SqlServer,
+    Postgres,
     Csv
 }
 
@@ -16,21 +17,21 @@ public sealed record ConnectorDto(
     DateTimeOffset UpdatedAtUtc);
 
 public sealed record SqlConnectorSettingsDto(
-    string Server,
+    string Host,
     int Port,
     string Database,
     string Username,
-    string Table,
-    bool TrustServerCertificate);
+    bool TrustServerCertificate,
+    string? ConfigJson);
 
 public sealed record SqlConnectorSettingsInputDto(
-    string Server,
+    string Host,
     int Port,
     string Database,
     string Username,
     string Password,
-    string Table,
-    bool TrustServerCertificate);
+    bool TrustServerCertificate,
+    string? ConfigJson = null);
 
 public sealed record CsvConnectorSettingsDto(
     string Path,

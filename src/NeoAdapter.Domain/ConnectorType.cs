@@ -2,6 +2,7 @@ namespace NeoAdapter.Domain;
 
 public enum ConnectorType
 {
-    Sql,
+    SqlServer,
+    Postgres,
     Csv
 }

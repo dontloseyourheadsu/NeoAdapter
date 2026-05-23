@@ -1,9 +1,12 @@
+using System.Data.Common;
+using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using NeoAdapter.Application.Database.Contexts;
 using NeoAdapter.Application.Security;
 using NeoAdapter.Contracts.Connectors;
 using NeoAdapter.Domain;
+using Npgsql;
 using ConnectorTypeContract = NeoAdapter.Contracts.Connectors.ConnectorType;
 using ConnectorTypeDomain = NeoAdapter.Domain.ConnectorType;
 
@@ -13,6 +16,17 @@ public sealed class ConnectorService(
     NeoAdapterDbContext dbContext,
     ISqlSecretProtector sqlSecretProtector) : IConnectorService
 {
+    private class SqlTableConfig
+    {
+        public string Name { get; set; } = string.Empty;
+        public List<string> Fields { get; set; } = new();
+    }
+
+    private class SqlConfig
+    {
+        public List<SqlTableConfig> Tables { get; set; } = new();
+    }
+
     public async Task<IReadOnlyList<ConnectorDto>> GetAllAsync(CancellationToken cancellationToken)
     {
         var connectors = await dbContext.Connectors
@@ -44,42 +58,46 @@ public sealed class ConnectorService(
         {
             Id = Guid.NewGuid(),
             Name = trimmedName,
-            Type = request.Type == ConnectorTypeContract.Sql ? ConnectorTypeDomain.Sql : ConnectorTypeDomain.Csv,
+            Type = MapToDomainType(request.Type),
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
 
-        switch (request.Type)
+        if (request.Type == ConnectorTypeContract.SqlServer || request.Type == ConnectorTypeContract.Postgres)
         {
-            case ConnectorTypeContract.Sql:
-                if (request.Sql is null)
-                {
-                    throw new InvalidOperationException("SQL connector settings are required.");
-                }
+            if (request.Sql is null)
+            {
+                throw new InvalidOperationException("SQL connector settings are required.");
+            }
 
-                ValidateSqlSettings(request.Sql);
-                connector.SqlServer = request.Sql.Server.Trim();
-                connector.SqlPort = request.Sql.Port;
-                connector.SqlDatabase = request.Sql.Database.Trim();
-                connector.SqlUsername = request.Sql.Username.Trim();
-                connector.SqlPassword = sqlSecretProtector.Protect(request.Sql.Password);
-                connector.SqlTable = request.Sql.Table.Trim();
-                connector.SqlTrustServerCertificate = request.Sql.TrustServerCertificate;
-                break;
+            ValidateSqlSettings(request.Sql);
+            connector.SqlHost = request.Sql.Host.Trim();
+            connector.SqlPort = request.Sql.Port;
+            connector.SqlDatabase = request.Sql.Database.Trim();
+            connector.SqlUsername = request.Sql.Username.Trim();
+            connector.SqlPassword = sqlSecretProtector.Protect(request.Sql.Password);
+            connector.SqlTrustServerCertificate = request.Sql.TrustServerCertificate;
+            connector.SqlConfigJson = request.Sql.ConfigJson;
+            
+            if (!string.IsNullOrWhiteSpace(connector.SqlConfigJson))
+            {
+                await ValidateFkIntegrityAsync(request.Type, request.Sql, cancellationToken);
+            }
+        }
+        else if (request.Type == ConnectorTypeContract.Csv)
+        {
+            if (request.Csv is null)
+            {
+                throw new InvalidOperationException("CSV connector settings are required.");
+            }
 
-            case ConnectorTypeContract.Csv:
-                if (request.Csv is null)
-                {
-                    throw new InvalidOperationException("CSV connector settings are required.");
-                }
-
-                ValidateCsvSettings(request.Csv);
-                connector.CsvPath = request.Csv.Path.Trim();
-                connector.CsvDelimiter = request.Csv.Delimiter;
-                break;
-
-            default:
-                throw new InvalidOperationException("Unsupported connector type.");
+            ValidateCsvSettings(request.Csv);
+            connector.CsvPath = request.Csv.Path.Trim();
+            connector.CsvDelimiter = request.Csv.Delimiter;
+        }
+        else
+        {
+            throw new InvalidOperationException("Unsupported connector type.");
         }
 
         dbContext.Connectors.Add(connector);
@@ -87,64 +105,182 @@ public sealed class ConnectorService(
         return MapToDto(connector);
     }
 
+    private async Task ValidateFkIntegrityAsync(ConnectorTypeContract type, SqlConnectorSettingsInputDto sql, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sql.ConfigJson)) return;
+
+        var config = JsonSerializer.Deserialize<SqlConfig>(sql.ConfigJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (config == null || config.Tables.Count == 0) return;
+
+        await using var connection = CreateConnection(type, sql);
+        await connection.OpenAsync(cancellationToken);
+
+        foreach (var table in config.Tables)
+        {
+            var fks = await GetForeignKeysAsync(connection, type, table.Name);
+            foreach (var fk in fks)
+            {
+                // If the FK column is selected for migration
+                if (table.Fields.Contains(fk.ColumnName, StringComparer.OrdinalIgnoreCase))
+                {
+                    // Check if target table is included
+                    var targetTableConfig = config.Tables.FirstOrDefault(t => string.Equals(t.Name, fk.ReferencedTable, StringComparison.OrdinalIgnoreCase));
+                    if (targetTableConfig == null)
+                    {
+                        throw new InvalidOperationException($"Table '{table.Name}' has a Foreign Key on '{fk.ColumnName}' referencing '{fk.ReferencedTable}'. You must include table '{fk.ReferencedTable}' in the connector.");
+                    }
+
+                    // Check if target field is included
+                    if (!targetTableConfig.Fields.Contains(fk.ReferencedColumn, StringComparer.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException($"Table '{table.Name}' references '{fk.ReferencedTable}({fk.ReferencedColumn})'. You must include field '{fk.ReferencedColumn}' in table '{fk.ReferencedTable}'.");
+                    }
+                }
+            }
+        }
+    }
+
+    private class ForeignKeyInfo
+    {
+        public string ColumnName { get; set; } = string.Empty;
+        public string ReferencedTable { get; set; } = string.Empty;
+        public string ReferencedColumn { get; set; } = string.Empty;
+    }
+
+    private async Task<List<ForeignKeyInfo>> GetForeignKeysAsync(DbConnection connection, ConnectorTypeContract type, string tableName)
+    {
+        var result = new List<ForeignKeyInfo>();
+        await using var command = connection.CreateCommand();
+
+        if (type == ConnectorTypeContract.SqlServer)
+        {
+            command.CommandText = @"
+                SELECT 
+                    cc.name AS ColumnName,
+                    rt.name AS ReferencedTable,
+                    rc.name AS ReferencedColumn
+                FROM sys.foreign_key_columns fk
+                JOIN sys.tables st ON fk.parent_object_id = st.object_id
+                JOIN sys.columns cc ON fk.parent_object_id = cc.object_id AND fk.parent_column_id = cc.column_id
+                JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
+                JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id
+                WHERE st.name = @tableName";
+        }
+        else // Postgres
+        {
+            command.CommandText = @"
+                SELECT
+                    kcu.column_name AS ColumnName,
+                    ccu.table_name AS ReferencedTable,
+                    ccu.column_name AS ReferencedColumn
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                  AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                  AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = @tableName";
+        }
+
+        var param = command.CreateParameter();
+        param.ParameterName = "@tableName";
+        param.Value = tableName;
+        command.Parameters.Add(param);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            result.Add(new ForeignKeyInfo
+            {
+                ColumnName = reader.GetString(0),
+                ReferencedTable = reader.GetString(1),
+                ReferencedColumn = reader.GetString(2)
+            });
+        }
+
+        return result;
+    }
+
     public async Task<TestConnectorResponse> TestAsync(TestConnectorRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        switch (request.Type)
+        if (request.Type == ConnectorTypeContract.SqlServer || request.Type == ConnectorTypeContract.Postgres)
         {
-            case ConnectorTypeContract.Sql:
-                if (request.Sql is null)
-                {
-                    throw new InvalidOperationException("SQL connector settings are required.");
-                }
+            if (request.Sql is null)
+            {
+                throw new InvalidOperationException("SQL connector settings are required.");
+            }
 
-                ValidateSqlSettings(request.Sql);
-                await using (var connection = new SqlConnection(BuildSqlConnectionString(request.Sql)))
-                {
-                    await connection.OpenAsync(cancellationToken);
-                    await using var command = connection.CreateCommand();
-                    command.CommandText = "SELECT 1";
-                    await command.ExecuteScalarAsync(cancellationToken);
-                }
+            ValidateSqlSettings(request.Sql);
+            
+            try
+            {
+                await using var connection = CreateConnection(request.Type, request.Sql);
+                await connection.OpenAsync(cancellationToken);
+                await using var command = connection.CreateCommand();
+                command.CommandText = "SELECT 1";
+                await command.ExecuteScalarAsync(cancellationToken);
+                return new TestConnectorResponse(true, $"{request.Type} connection test succeeded.", DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                return new TestConnectorResponse(false, $"Connection test failed: {ex.Message}", DateTimeOffset.UtcNow);
+            }
+        }
+        else if (request.Type == ConnectorTypeContract.Csv)
+        {
+            if (request.Csv is null)
+            {
+                throw new InvalidOperationException("CSV connector settings are required.");
+            }
 
-                return new TestConnectorResponse(true, "SQL connection test succeeded.", DateTimeOffset.UtcNow);
+            ValidateCsvSettings(request.Csv);
+            var path = request.Csv.Path.Trim();
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
 
-            case ConnectorTypeContract.Csv:
-                if (request.Csv is null)
-                {
-                    throw new InvalidOperationException("CSV connector settings are required.");
-                }
-
-                ValidateCsvSettings(request.Csv);
-                var path = request.Csv.Path.Trim();
-                var directory = Path.GetDirectoryName(path);
-                if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
+            try
+            {
                 await using (var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite))
                 {
                     await stream.FlushAsync(cancellationToken);
                 }
-
                 return new TestConnectorResponse(true, "CSV path test succeeded.", DateTimeOffset.UtcNow);
-
-            default:
-                throw new InvalidOperationException("Unsupported connector type.");
+            }
+            catch (Exception ex)
+            {
+                return new TestConnectorResponse(false, $"CSV test failed: {ex.Message}", DateTimeOffset.UtcNow);
+            }
         }
+        else
+        {
+            throw new InvalidOperationException("Unsupported connector type.");
+        }
+    }
+
+    private DbConnection CreateConnection(ConnectorTypeContract type, SqlConnectorSettingsInputDto sql)
+    {
+        return type switch
+        {
+            ConnectorTypeContract.SqlServer => new SqlConnection(BuildSqlServerConnectionString(sql)),
+            ConnectorTypeContract.Postgres => new NpgsqlConnection(BuildPostgresConnectionString(sql)),
+            _ => throw new InvalidOperationException("Unsupported SQL type.")
+        };
     }
 
     private static void ValidateSqlSettings(SqlConnectorSettingsInputDto sql)
     {
-        if (string.IsNullOrWhiteSpace(sql.Server)
+        if (string.IsNullOrWhiteSpace(sql.Host)
             || string.IsNullOrWhiteSpace(sql.Database)
             || string.IsNullOrWhiteSpace(sql.Username)
-            || string.IsNullOrWhiteSpace(sql.Password)
-            || string.IsNullOrWhiteSpace(sql.Table))
+            || string.IsNullOrWhiteSpace(sql.Password))
         {
-            throw new InvalidOperationException("SQL connector requires server, database, username, password, and table.");
+            throw new InvalidOperationException("SQL connector requires host, database, username, and password.");
         }
 
         if (sql.Port <= 0)
@@ -166,20 +302,20 @@ public sealed class ConnectorService(
         }
     }
 
-    private static ConnectorDto MapToDto(Connector connector)
+    private ConnectorDto MapToDto(Connector connector)
     {
         SqlConnectorSettingsDto? sql = null;
         CsvConnectorSettingsDto? csv = null;
 
-        if (connector.Type == ConnectorTypeDomain.Sql)
+        if (connector.Type == ConnectorTypeDomain.SqlServer || connector.Type == ConnectorTypeDomain.Postgres)
         {
             sql = new SqlConnectorSettingsDto(
-                connector.SqlServer ?? string.Empty,
-                connector.SqlPort ?? 1433,
+                connector.SqlHost ?? string.Empty,
+                connector.SqlPort ?? (connector.Type == ConnectorTypeDomain.SqlServer ? 1433 : 5432),
                 connector.SqlDatabase ?? string.Empty,
                 connector.SqlUsername ?? string.Empty,
-                connector.SqlTable ?? string.Empty,
-                connector.SqlTrustServerCertificate);
+                connector.SqlTrustServerCertificate,
+                connector.SqlConfigJson);
         }
 
         if (connector.Type == ConnectorTypeDomain.Csv)
@@ -192,18 +328,34 @@ public sealed class ConnectorService(
         return new ConnectorDto(
             connector.Id,
             connector.Name,
-            connector.Type == ConnectorTypeDomain.Sql ? ConnectorTypeContract.Sql : ConnectorTypeContract.Csv,
+            MapToContractType(connector.Type),
             sql,
             csv,
             connector.CreatedAtUtc,
             connector.UpdatedAtUtc);
     }
 
-    private static string BuildSqlConnectionString(SqlConnectorSettingsInputDto sql)
+    private static ConnectorTypeDomain MapToDomainType(ConnectorTypeContract type) => type switch
+    {
+        ConnectorTypeContract.SqlServer => ConnectorTypeDomain.SqlServer,
+        ConnectorTypeContract.Postgres => ConnectorTypeDomain.Postgres,
+        ConnectorTypeContract.Csv => ConnectorTypeDomain.Csv,
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+    };
+
+    private static ConnectorTypeContract MapToContractType(ConnectorTypeDomain type) => type switch
+    {
+        ConnectorTypeDomain.SqlServer => ConnectorTypeContract.SqlServer,
+        ConnectorTypeDomain.Postgres => ConnectorTypeContract.Postgres,
+        ConnectorTypeDomain.Csv => ConnectorTypeContract.Csv,
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+    };
+
+    private string BuildSqlServerConnectionString(SqlConnectorSettingsInputDto sql)
     {
         var builder = new SqlConnectionStringBuilder
         {
-            DataSource = $"{sql.Server},{sql.Port}",
+            DataSource = $"{sql.Host},{sql.Port}",
             InitialCatalog = sql.Database,
             UserID = sql.Username,
             Password = sql.Password,
@@ -211,6 +363,22 @@ public sealed class ConnectorService(
             TrustServerCertificate = sql.TrustServerCertificate,
             IntegratedSecurity = false,
             ConnectTimeout = 20
+        };
+
+        return builder.ConnectionString;
+    }
+
+    private string BuildPostgresConnectionString(SqlConnectorSettingsInputDto sql)
+    {
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = sql.Host,
+            Port = sql.Port,
+            Database = sql.Database,
+            Username = sql.Username,
+            Password = sql.Password,
+            TrustServerCertificate = sql.TrustServerCertificate,
+            Timeout = 20
         };
 
         return builder.ConnectionString;
