@@ -147,6 +147,10 @@ using (var scope = app.Services.CreateScope())
                 ALTER TABLE connectors RENAME COLUMN sql_server TO sql_host;
             END IF;
         END $$;");
+    
+    // Fix legacy ConnectorType values
+    await dbContext.Database.ExecuteSqlRawAsync("UPDATE connectors SET type = 'SqlServer' WHERE type = 'Sql';");
+
     try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sql_config_json jsonb;"); } catch {}
 
     await dbContext.Database.ExecuteSqlRawAsync(@"
@@ -193,6 +197,18 @@ using (var scope = app.Services.CreateScope())
             role character varying(20) NOT NULL DEFAULT 'User',
             created_at_utc timestamp with time zone NOT NULL,
             last_login_at_utc timestamp with time zone
+        );
+    ");
+
+    await dbContext.Database.ExecuteSqlRawAsync(@"
+        CREATE TABLE IF NOT EXISTS user_refresh_tokens (
+            id uuid PRIMARY KEY,
+            user_id uuid NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+            token character varying(500) NOT NULL UNIQUE,
+            expires_at_utc timestamp with time zone NOT NULL,
+            created_at_utc timestamp with time zone NOT NULL,
+            is_revoked boolean NOT NULL DEFAULT false,
+            is_used boolean NOT NULL DEFAULT false
         );
     ");
 
