@@ -26,6 +26,10 @@ public sealed class Connector
 
     public string CsvDelimiter { get; set; } = ",";
 
+    public string? ExcelPath { get; set; }
+
+    public string? ExcelSheetName { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }

@@ -4,7 +4,8 @@ public enum ConnectorType
 {
     SqlServer,
     Postgres,
-    Csv
+    Csv,
+    Excel
 }
 
 public sealed record ConnectorDto(
@@ -13,6 +14,7 @@ public sealed record ConnectorDto(
     ConnectorType Type,
     SqlConnectorSettingsDto? Sql,
     CsvConnectorSettingsDto? Csv,
+    ExcelConnectorSettingsDto? Excel,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -37,16 +39,22 @@ public sealed record CsvConnectorSettingsDto(
     string Path,
     string Delimiter);
 
+public sealed record ExcelConnectorSettingsDto(
+    string Path,
+    string? SheetName);
+
 public sealed record CreateConnectorRequest(
     string Name,
     ConnectorType Type,
     SqlConnectorSettingsInputDto? Sql,
-    CsvConnectorSettingsDto? Csv);
+    CsvConnectorSettingsDto? Csv,
+    ExcelConnectorSettingsDto? Excel);
 
 public sealed record TestConnectorRequest(
     ConnectorType Type,
     SqlConnectorSettingsInputDto? Sql,
-    CsvConnectorSettingsDto? Csv);
+    CsvConnectorSettingsDto? Csv,
+    ExcelConnectorSettingsDto? Excel);
 
 public sealed record TestConnectorResponse(
     bool IsSuccess,

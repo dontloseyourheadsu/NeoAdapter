@@ -63,6 +63,14 @@ public sealed class ConnectorConfiguration : IEntityTypeConfiguration<Connector>
             .HasMaxLength(4)
             .IsRequired();
 
+        builder.Property(connector => connector.ExcelPath)
+            .HasColumnName("excel_path")
+            .HasMaxLength(1000);
+
+        builder.Property(connector => connector.ExcelSheetName)
+            .HasColumnName("excel_sheet_name")
+            .HasMaxLength(255);
+
         builder.Property(connector => connector.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .HasColumnType("timestamp with time zone")

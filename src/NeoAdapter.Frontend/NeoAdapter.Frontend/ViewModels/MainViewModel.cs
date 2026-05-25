@@ -95,7 +95,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<IntegrationJobDto> IntegrationJobs { get; } = [];
 
-    public IReadOnlyList<ConnectorType> ConnectorTypes { get; } = [ConnectorType.SqlServer, ConnectorType.Postgres, ConnectorType.Csv];
+    public IReadOnlyList<ConnectorType> ConnectorTypes { get; } = [ConnectorType.SqlServer, ConnectorType.Postgres, ConnectorType.Csv, ConnectorType.Excel];
 
     public IAsyncRelayCommand RefreshCommand { get; }
 
@@ -191,6 +191,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private string _csvDelimiter = ",";
 
     [ObservableProperty]
+    private string _excelPath = string.Empty;
+
+    [ObservableProperty]
+    private string _excelSheetName = string.Empty;
+
+    [ObservableProperty]
     private string _newIntegrationJobName = string.Empty;
 
     [ObservableProperty]
@@ -209,9 +215,16 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public bool IsCsvConnectorSelected => NewConnectorType == ConnectorType.Csv;
 
+    public bool IsExcelConnectorSelected => NewConnectorType == ConnectorType.Excel;
+
     public void SetCsvPath(string path)
     {
         CsvPath = path;
+    }
+
+    public void SetExcelPath(string path)
+    {
+        ExcelPath = path;
     }
 
     public void Dispose()
@@ -225,6 +238,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(IsSqlConnectorSelected));
         OnPropertyChanged(nameof(IsCsvConnectorSelected));
+        OnPropertyChanged(nameof(IsExcelConnectorSelected));
     }
 
     private async Task StartPollingAsync()
@@ -339,6 +353,9 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                     : null,
                 IsCsvConnectorSelected
                     ? new CsvConnectorSettingsDto(CsvPath, CsvDelimiter)
+                    : null,
+                IsExcelConnectorSelected
+                    ? new ExcelConnectorSettingsDto(ExcelPath, string.IsNullOrWhiteSpace(ExcelSheetName) ? null : ExcelSheetName)
                     : null);
 
             var created = await _connectorApiClient.CreateAsync(request, cancellationToken);
@@ -379,6 +396,9 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                     : null,
                 IsCsvConnectorSelected
                     ? new CsvConnectorSettingsDto(CsvPath, CsvDelimiter)
+                    : null,
+                IsExcelConnectorSelected
+                    ? new ExcelConnectorSettingsDto(ExcelPath, string.IsNullOrWhiteSpace(ExcelSheetName) ? null : ExcelSheetName)
                     : null);
 
             var result = await _connectorApiClient.TestAsync(request, cancellationToken);

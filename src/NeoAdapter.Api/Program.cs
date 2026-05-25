@@ -134,6 +134,8 @@ using (var scope = app.Services.CreateScope())
                 sql_trust_server_certificate boolean NOT NULL DEFAULT false,
                 csv_path character varying(1000),
                 csv_delimiter character varying(4) NOT NULL DEFAULT ',',
+                excel_path character varying(1000),
+                excel_sheet_name character varying(255),
                 created_at_utc timestamp with time zone NOT NULL,
                 updated_at_utc timestamp with time zone NOT NULL
             );
@@ -149,6 +151,8 @@ using (var scope = app.Services.CreateScope())
         
         await dbContext.Database.ExecuteSqlRawAsync("UPDATE connectors SET type = 'SqlServer' WHERE type = 'Sql';");
         try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sql_config_json jsonb;"); } catch {}
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS excel_path character varying(1000);"); } catch {}
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS excel_sheet_name character varying(255);"); } catch {}
 
         await dbContext.Database.ExecuteSqlRawAsync(@"
             CREATE TABLE IF NOT EXISTS integration_jobs (
