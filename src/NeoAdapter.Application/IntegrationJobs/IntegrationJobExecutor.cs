@@ -12,6 +12,7 @@ using NeoAdapter.Application.Database.Contexts;
 using NeoAdapter.Application.Security;
 using NeoAdapter.Domain;
 using Npgsql;
+using MiniExcelLibs;
 
 namespace NeoAdapter.Application.IntegrationJobs;
 
@@ -85,6 +86,14 @@ public sealed class IntegrationJobExecutor(
                 else if (source.Type == ConnectorType.Csv && IsSqlConnector(destination.Type))
                 {
                     processed = await ExecuteCsvToSqlAsync(source, destination);
+                }
+                else if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.Excel)
+                {
+                    processed = await ExecuteSqlToExcelAsync(source, destination);
+                }
+                else if (source.Type == ConnectorType.Excel && IsSqlConnector(destination.Type))
+                {
+                    processed = await ExecuteExcelToSqlAsync(source, destination);
                 }
                 else if (IsSqlConnector(source.Type) && IsSqlConnector(destination.Type))
                 {
@@ -401,5 +410,123 @@ public sealed class IntegrationJobExecutor(
         };
 
         return builder.ConnectionString;
+    }
+
+    private async Task<int> ExecuteSqlToExcelAsync(Connector sqlConnector, Connector excelConnector)
+    {
+        var excelPath = excelConnector.ExcelPath;
+        if (string.IsNullOrWhiteSpace(excelPath))
+        {
+            throw new InvalidOperationException("Excel destination path is required.");
+        }
+
+        var directory = Path.GetDirectoryName(excelPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var sqlConfig = GetSqlConfig(sqlConnector);
+        await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        
+        int totalProcessed = 0;
+        foreach (var tableConfig in sqlConfig.Tables)
+        {
+            var fields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
+            var sourceTable = QuoteIdentifier(sqlConnector.Type, tableConfig.Name);
+
+            await using var command = sqlConnection.CreateCommand();
+            command.CommandText = $"SELECT {fields} FROM {sourceTable}";
+
+            await using var reader = await command.ExecuteReaderAsync();
+            
+            var tableExcelPath = sqlConfig.Tables.Count > 1 
+                ? Path.Combine(directory!, $"{Path.GetFileNameWithoutExtension(excelPath)}_{tableConfig.Name}{Path.GetExtension(excelPath)}")
+                : excelPath;
+
+            var sheetName = excelConnector.ExcelSheetName ?? tableConfig.Name;
+            if (string.IsNullOrWhiteSpace(sheetName))
+            {
+                sheetName = "Sheet1";
+            }
+
+            if (File.Exists(tableExcelPath))
+            {
+                File.Delete(tableExcelPath);
+            }
+
+            await MiniExcel.SaveAsAsync(tableExcelPath, reader, sheetName: sheetName);
+
+            await using var countCmd = sqlConnection.CreateCommand();
+            countCmd.CommandText = $"SELECT COUNT(*) FROM {sourceTable}";
+            var count = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
+            totalProcessed += count;
+        }
+
+        return totalProcessed;
+    }
+
+    private async Task<int> ExecuteExcelToSqlAsync(Connector excelConnector, Connector sqlConnector)
+    {
+        var excelPath = excelConnector.ExcelPath;
+        if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
+        {
+            throw new InvalidOperationException("Excel source path does not exist.");
+        }
+
+        var sqlConfig = GetSqlConfig(sqlConnector);
+        if (sqlConfig.Tables.Count == 0)
+        {
+             throw new InvalidOperationException("SQL target requires at least one table configuration.");
+        }
+        
+        var tableConfig = sqlConfig.Tables[0];
+        var table = tableConfig.Name;
+
+        await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        var sheetName = excelConnector.ExcelSheetName;
+        
+        var rowsEnumerable = await MiniExcel.QueryAsync(excelPath, useHeaderRow: true, sheetName: sheetName);
+        var rows = rowsEnumerable.Cast<IDictionary<string, object>>().ToList();
+
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+
+        var headers = rows[0].Keys.ToList();
+        var commonFields = headers.Intersect(tableConfig.Fields, StringComparer.OrdinalIgnoreCase).ToList();
+        if (commonFields.Count == 0)
+        {
+            throw new InvalidOperationException($"No matching fields found between Excel sheet and SQL table '{table}'.");
+        }
+
+        string quotedColumns = string.Join(",", commonFields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
+        string parametersSql = string.Join(",", commonFields.Select((_, index) => $"@p{index}"));
+        
+        var commandText = $"INSERT INTO {QuoteIdentifier(sqlConnector.Type, table)} ({quotedColumns}) VALUES ({parametersSql})";
+
+        var inserted = 0;
+        foreach (var row in rows)
+        {
+            await using var insertCommand = sqlConnection.CreateCommand();
+            insertCommand.CommandText = commandText;
+            for (var index = 0; index < commonFields.Count; index++)
+            {
+                var fieldName = commonFields[index];
+                var key = row.Keys.FirstOrDefault(k => string.Equals(k, fieldName, StringComparison.OrdinalIgnoreCase));
+                var value = key != null ? row[key] : null;
+
+                var param = insertCommand.CreateParameter();
+                param.ParameterName = $"@p{index}";
+                param.Value = value ?? DBNull.Value;
+                insertCommand.Parameters.Add(param);
+            }
+
+            await insertCommand.ExecuteNonQueryAsync();
+            inserted++;
+        }
+
+        return inserted;
     }
 }
