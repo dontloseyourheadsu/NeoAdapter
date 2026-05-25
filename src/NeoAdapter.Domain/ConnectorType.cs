@@ -4,5 +4,6 @@ public enum ConnectorType
 {
     SqlServer,
     Postgres,
-    Csv
+    Csv,
+    Excel
 }
