@@ -95,6 +95,17 @@ public sealed class ConnectorService(
             connector.CsvPath = request.Csv.Path.Trim();
             connector.CsvDelimiter = request.Csv.Delimiter;
         }
+        else if (request.Type == ConnectorTypeContract.Excel)
+        {
+            if (request.Excel is null)
+            {
+                throw new InvalidOperationException("Excel connector settings are required.");
+            }
+
+            ValidateExcelSettings(request.Excel);
+            connector.ExcelPath = request.Excel.Path.Trim();
+            connector.ExcelSheetName = request.Excel.SheetName?.Trim();
+        }
         else
         {
             throw new InvalidOperationException("Unsupported connector type.");
@@ -257,6 +268,34 @@ public sealed class ConnectorService(
                 return new TestConnectorResponse(false, $"CSV test failed: {ex.Message}", DateTimeOffset.UtcNow);
             }
         }
+        else if (request.Type == ConnectorTypeContract.Excel)
+        {
+            if (request.Excel is null)
+            {
+                throw new InvalidOperationException("Excel connector settings are required.");
+            }
+
+            ValidateExcelSettings(request.Excel);
+            var path = request.Excel.Path.Trim();
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            try
+            {
+                await using (var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite))
+                {
+                    await stream.FlushAsync(cancellationToken);
+                }
+                return new TestConnectorResponse(true, "Excel path test succeeded.", DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                return new TestConnectorResponse(false, $"Excel test failed: {ex.Message}", DateTimeOffset.UtcNow);
+            }
+        }
         else
         {
             throw new InvalidOperationException("Unsupported connector type.");
@@ -302,10 +341,19 @@ public sealed class ConnectorService(
         }
     }
 
+    private static void ValidateExcelSettings(ExcelConnectorSettingsDto excel)
+    {
+        if (string.IsNullOrWhiteSpace(excel.Path))
+        {
+            throw new InvalidOperationException("Excel connector path is required.");
+        }
+    }
+
     private ConnectorDto MapToDto(Connector connector)
     {
         SqlConnectorSettingsDto? sql = null;
         CsvConnectorSettingsDto? csv = null;
+        ExcelConnectorSettingsDto? excel = null;
 
         if (connector.Type == ConnectorTypeDomain.SqlServer || connector.Type == ConnectorTypeDomain.Postgres)
         {
@@ -325,12 +373,20 @@ public sealed class ConnectorService(
                 connector.CsvDelimiter);
         }
 
+        if (connector.Type == ConnectorTypeDomain.Excel)
+        {
+            excel = new ExcelConnectorSettingsDto(
+                connector.ExcelPath ?? string.Empty,
+                connector.ExcelSheetName);
+        }
+
         return new ConnectorDto(
             connector.Id,
             connector.Name,
             MapToContractType(connector.Type),
             sql,
             csv,
+            excel,
             connector.CreatedAtUtc,
             connector.UpdatedAtUtc);
     }
@@ -340,6 +396,7 @@ public sealed class ConnectorService(
         ConnectorTypeContract.SqlServer => ConnectorTypeDomain.SqlServer,
         ConnectorTypeContract.Postgres => ConnectorTypeDomain.Postgres,
         ConnectorTypeContract.Csv => ConnectorTypeDomain.Csv,
+        ConnectorTypeContract.Excel => ConnectorTypeDomain.Excel,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
@@ -348,6 +405,7 @@ public sealed class ConnectorService(
         ConnectorTypeDomain.SqlServer => ConnectorTypeContract.SqlServer,
         ConnectorTypeDomain.Postgres => ConnectorTypeContract.Postgres,
         ConnectorTypeDomain.Csv => ConnectorTypeContract.Csv,
+        ConnectorTypeDomain.Excel => ConnectorTypeContract.Excel,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
