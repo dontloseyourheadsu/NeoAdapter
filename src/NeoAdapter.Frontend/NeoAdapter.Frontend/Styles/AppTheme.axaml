@@ -73,4 +73,18 @@
         <Setter Property="Foreground" Value="{DynamicResource NeoPrimaryTextBrush}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+
+    <Style Selector="Button.google-btn">
+        <Setter Property="Background" Value="#171426" />
+        <Setter Property="BorderBrush" Value="#2F294D" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Foreground" Value="{DynamicResource NeoPrimaryTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.google-btn:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#221D38" />
+        <Setter Property="BorderBrush" Value="#453B73" />
+    </Style>
 </Styles>

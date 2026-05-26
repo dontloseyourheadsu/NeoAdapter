@@ -47,6 +47,19 @@
                     <Button Content="Login" Command="{Binding LoginCommand}" Classes="primary-btn" />
                     <Button Grid.Column="1" Content="Register" Command="{Binding RegisterCommand}" Classes="ghost-btn" />
                 </Grid>
+
+                <Grid ColumnDefinitions="*,Auto,*" VerticalAlignment="Center" Margin="0,4">
+                    <Border Grid.Column="0" Background="{DynamicResource NeoBorderBrush}" Height="1" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="or" Margin="8,0" Classes="muted" VerticalAlignment="Center" />
+                    <Border Grid.Column="2" Background="{DynamicResource NeoBorderBrush}" Height="1" VerticalAlignment="Center" />
+                </Grid>
+
+                <Button Command="{Binding LoginWithGoogleCommand}" Classes="google-btn" HorizontalAlignment="Stretch" Margin="0,2,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <PathIcon Width="16" Height="16" Data="M21.35 11.1h-9.17v2.73h6.51c-.33 1.56-1.56 2.95-3.24 3.5v2.88h5.21c3.05-2.81 4.81-6.96 4.81-11.89 0-.82-.08-1.55-.12-2.22zM12.18 16.4c-2.42 0-4.5-1.63-5.23-3.83l-5.21 4.02C4.16 21.36 7.82 24 12.18 24c3.24 0 5.95-1.08 7.93-2.9l-5.21-2.88c-.68.42-1.66.71-2.72.71zM6.95 12c0-.68.12-1.35.33-2l-5.21-4.02C.73 7.94 0 9.89 0 12s.73 4.06 2.07 6.02l5.21-4.02c-.21-.65-.33-1.32-.33-2zM12.18 7.6c1.76 0 3.35.6 4.6 1.8l3.43-3.43C18.13 4.07 15.42 3 12.18 3 7.82 3 4.16 5.64 2.07 9.98l5.21 4.02c.73-2.2 2.81-3.83 5.23-3.83z" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <TextBlock Text="Sign in with Google" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Border>
 
