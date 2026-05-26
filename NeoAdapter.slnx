@@ -11,4 +11,9 @@
     <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend.Desktop/NeoAdapter.Frontend.Desktop.csproj" />
     <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend/NeoAdapter.Frontend.csproj" />
   </Folder>
+  <Folder Name="/src/NeoAdapter.Frontend.Blazor/">
+    <Project Path="src/NeoAdapter.Frontend.BlazorShared/NeoAdapter.Frontend.BlazorShared.csproj" />
+    <Project Path="src/NeoAdapter.Frontend.MauiBlazor/NeoAdapter.Frontend.MauiBlazor.csproj" />
+    <Project Path="src/NeoAdapter.Frontend.WebBlazor/NeoAdapter.Frontend.WebBlazor.csproj" />
+  </Folder>
 </Solution>

@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+	<PropertyGroup>
+		<!-- On Unix (Linux without workloads), default to standard class library so dotnet build succeeds. -->
+		<!-- Pass -p:BuildMaui=true to force MAUI compilation -->
+		<UseMaui Condition="'$(OS)' != 'Unix' or '$(BuildMaui)' == 'true'">true</UseMaui>
+		
+		<TargetFrameworks Condition="'$(UseMaui)' == 'true'">net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+		<TargetFrameworks Condition="'$(UseMaui)' == 'true' and $([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+		
+		<TargetFrameworks Condition="'$(UseMaui)' != 'true'">net10.0</TargetFrameworks>
+		
+		<OutputType Condition="'$(UseMaui)' == 'true'">Exe</OutputType>
+		<OutputType Condition="'$(UseMaui)' != 'true'">Library</OutputType>
+		
+		<RootNamespace>NeoAdapter.Frontend.MauiBlazor</RootNamespace>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<EnableDefaultCssItems>false</EnableDefaultCssItems>
+		<Nullable>enable</Nullable>
+
+		<!-- Display name -->
+		<ApplicationTitle>NeoAdapter.Frontend.MauiBlazor</ApplicationTitle>
+
+		<!-- App Identifier -->
+		<ApplicationId>com.companyname.neoadapter.frontend.mauiblazor</ApplicationId>
+		<ApplicationIdGuid>657164F7-F3E1-43C3-988F-A5602B301712</ApplicationIdGuid>
+
+		<!-- Versions -->
+		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
+
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">14.2</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">14.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">23.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+		<DisableScopedCssBundling Condition="'$(UseMaui)' != 'true'">true</DisableScopedCssBundling>
+	</PropertyGroup>
+
+	<!-- Conditional Compilation and File inclusion -->
+	<ItemGroup Condition="'$(UseMaui)' != 'true'">
+		<Compile Remove="**/*" />
+		<Content Remove="**/*" />
+		<EmbeddedResource Remove="**/*" />
+		<None Include="**/*" />
+	</ItemGroup>
+
+	<ItemGroup Condition="'$(UseMaui)' == 'true'">
+		<!-- App Icon -->
+		<MauiIcon
+			Include="Resources\appicon.svg"
+			ForegroundFile="Resources\appiconfg.svg"
+			Color="#512BD4" />
+
+		<!-- Splash Screen -->
+		<MauiSplashScreen Include="Resources\appiconfg.svg" Color="#512BD4" BaseSize="128,128" />
+
+		<!-- Images -->
+		<MauiImage Include="Resources\Images\*" />
+		<MauiImage Update="Resources\Images\dotnet_bot.svg" BaseSize="168,208" />
+
+		<!-- Custom Fonts -->
+		<MauiFont Include="Resources\Fonts\*" />
+
+		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
+		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.7" Condition="'$(UseMaui)' == 'true'" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\NeoAdapter.Frontend.BlazorShared\NeoAdapter.Frontend.BlazorShared.csproj" />
+	</ItemGroup>
+
+</Project>
