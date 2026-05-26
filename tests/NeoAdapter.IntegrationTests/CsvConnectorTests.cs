@@ -1,9 +1,10 @@
-using System.Data;
-using System.Text.Json;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
 using DotNet.Testcontainers.Builders;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using MiniExcelLibs;
 using Moq;
 using NeoAdapter.Application.Database.Contexts;
 using NeoAdapter.Application.IntegrationJobs;
@@ -15,10 +16,10 @@ using Xunit;
 
 namespace NeoAdapter.IntegrationTests;
 
-public class ExcelConnectorTests : IAsyncLifetime
+public class CsvConnectorTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithDatabase("test_db")
+        .WithDatabase("test_pg_db")
         .WithUsername("postgres")
         .WithPassword("postgres")
         .Build();
@@ -44,22 +45,19 @@ public class ExcelConnectorTests : IAsyncLifetime
                     File.Delete(file);
                 }
             }
-            catch
-            {
-                // Ignore cleanup errors
-            }
+            catch {}
         }
     }
 
-    private string GetTempExcelPath()
+    private string GetTempCsvPath()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.xlsx");
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
         _tempFiles.Add(path);
         return path;
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldTransferDataFromPostgresToExcel()
+    public async Task ExecuteAsync_ShouldTransferDataFromPostgresToCsv()
     {
         // Arrange
         var options = new DbContextOptionsBuilder<NeoAdapterDbContext>()
@@ -73,14 +71,12 @@ public class ExcelConnectorTests : IAsyncLifetime
         await conn.OpenAsync();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = @"
-                CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), salary NUMERIC); 
-                INSERT INTO employees VALUES (1, 'Alice', 60000), (2, 'Bob', 80000);";
+            cmd.CommandText = "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100)); INSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');";
             await cmd.ExecuteNonQueryAsync();
         }
 
         // 2. Setup Connectors
-        var excelPath = GetTempExcelPath();
+        var csvPath = GetTempCsvPath();
         var sourceConnector = new Connector
         {
             Id = Guid.NewGuid(),
@@ -88,25 +84,25 @@ public class ExcelConnectorTests : IAsyncLifetime
             Type = ConnectorType.Postgres,
             SqlHost = _postgresContainer.Hostname,
             SqlPort = _postgresContainer.GetMappedPublicPort(5432),
-            SqlDatabase = "test_db",
+            SqlDatabase = "test_pg_db",
             SqlUsername = "postgres",
             SqlPassword = "postgres",
-            SqlConfigJson = "{\"Tables\": [{\"Name\": \"employees\", \"Fields\": [\"id\", \"name\", \"salary\"]}]}"
+            SqlConfigJson = "{\"Tables\": [{\"Name\": \"users\", \"Fields\": [\"id\", \"name\"]}]}"
         };
 
         var destConnector = new Connector
         {
             Id = Guid.NewGuid(),
-            Name = "Excel Destination",
-            Type = ConnectorType.Excel,
-            ExcelPath = excelPath,
-            ExcelSheetName = "EmployeesList"
+            Name = "CSV Destination",
+            Type = ConnectorType.Csv,
+            CsvPath = csvPath,
+            CsvDelimiter = ","
         };
 
         var job = new IntegrationJob
         {
             Id = Guid.NewGuid(),
-            Name = "Postgres to Excel Job",
+            Name = "Postgres to CSV Job",
             IsEnabled = true,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             UpdatedAtUtc = DateTimeOffset.UtcNow
@@ -133,26 +129,16 @@ public class ExcelConnectorTests : IAsyncLifetime
         await executor.ExecuteAsync(job.Id);
 
         // Assert
-        File.Exists(excelPath).Should().BeTrue();
-
-        var rows = MiniExcel.Query(excelPath, useHeaderRow: true, sheetName: "EmployeesList").Cast<IDictionary<string, object>>().ToList();
-        rows.Count.Should().Be(2);
-
-        // Row 1 Assertions
-        var firstRow = rows[0];
-        firstRow["id"].ToString().Should().Be("1");
-        firstRow["name"].ToString().Should().Be("Alice");
-        firstRow["salary"].ToString().Should().Be("60000");
-
-        // Row 2 Assertions
-        var secondRow = rows[1];
-        secondRow["id"].ToString().Should().Be("2");
-        secondRow["name"].ToString().Should().Be("Bob");
-        secondRow["salary"].ToString().Should().Be("80000");
+        File.Exists(csvPath).Should().BeTrue();
+        var lines = await File.ReadAllLinesAsync(csvPath);
+        lines.Length.Should().Be(3); // Header + 2 rows
+        lines[0].Should().Be("id,name");
+        lines[1].Should().Be("1,Alice");
+        lines[2].Should().Be("2,Bob");
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldTransferDataFromExcelToPostgres()
+    public async Task ExecuteAsync_ShouldTransferDataFromCsvToPostgres()
     {
         // Arrange
         var options = new DbContextOptionsBuilder<NeoAdapterDbContext>()
@@ -161,21 +147,21 @@ public class ExcelConnectorTests : IAsyncLifetime
 
         using var dbContext = new NeoAdapterDbContext(options);
 
-        // 1. Create source Excel file
-        var excelPath = GetTempExcelPath();
-        var excelData = new[]
+        // 1. Setup CSV file
+        var csvPath = GetTempCsvPath();
+        await File.WriteAllLinesAsync(csvPath, new[]
         {
-            new { Id = 10, Name = "Charlie", Department = "HR" },
-            new { Id = 20, Name = "Diana", Department = "IT" }
-        };
-        await MiniExcel.SaveAsAsync(excelPath, excelData, sheetName: "Staff");
+            "id,name",
+            "10,Charlie",
+            "20,Diana"
+        });
 
-        // 2. Setup Postgres destination table schema
+        // 2. Setup Postgres destination schema
         await using var conn = new NpgsqlConnection(_postgresContainer.GetConnectionString());
         await conn.OpenAsync();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "CREATE TABLE staff (id INT PRIMARY KEY, name VARCHAR(100), department VARCHAR(50));";
+            cmd.CommandText = "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));";
             await cmd.ExecuteNonQueryAsync();
         }
 
@@ -183,10 +169,10 @@ public class ExcelConnectorTests : IAsyncLifetime
         var sourceConnector = new Connector
         {
             Id = Guid.NewGuid(),
-            Name = "Excel Source",
-            Type = ConnectorType.Excel,
-            ExcelPath = excelPath,
-            ExcelSheetName = "Staff"
+            Name = "CSV Source",
+            Type = ConnectorType.Csv,
+            CsvPath = csvPath,
+            CsvDelimiter = ","
         };
 
         var destConnector = new Connector
@@ -196,16 +182,16 @@ public class ExcelConnectorTests : IAsyncLifetime
             Type = ConnectorType.Postgres,
             SqlHost = _postgresContainer.Hostname,
             SqlPort = _postgresContainer.GetMappedPublicPort(5432),
-            SqlDatabase = "test_db",
+            SqlDatabase = "test_pg_db",
             SqlUsername = "postgres",
             SqlPassword = "postgres",
-            SqlConfigJson = "{\"Tables\": [{\"Name\": \"staff\", \"Fields\": [\"id\", \"name\", \"department\"]}]}"
+            SqlConfigJson = "{\"Tables\": [{\"Name\": \"users\", \"Fields\": [\"id\", \"name\"]}]}"
         };
 
         var job = new IntegrationJob
         {
             Id = Guid.NewGuid(),
-            Name = "Excel to Postgres Job",
+            Name = "CSV to Postgres Job",
             IsEnabled = true,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             UpdatedAtUtc = DateTimeOffset.UtcNow
@@ -233,16 +219,12 @@ public class ExcelConnectorTests : IAsyncLifetime
 
         // Assert
         await using var checkCmd = conn.CreateCommand();
-        checkCmd.CommandText = "SELECT COUNT(*) FROM staff";
+        checkCmd.CommandText = "SELECT COUNT(*) FROM users";
         var count = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
         count.Should().Be(2);
 
-        checkCmd.CommandText = "SELECT name FROM staff WHERE id = 10";
-        var name10 = (string?)await checkCmd.ExecuteScalarAsync();
-        name10.Should().Be("Charlie");
-
-        checkCmd.CommandText = "SELECT department FROM staff WHERE id = 20";
-        var dept20 = (string?)await checkCmd.ExecuteScalarAsync();
-        dept20.Should().Be("IT");
+        checkCmd.CommandText = "SELECT name FROM users WHERE id = 10";
+        var name = (string?)await checkCmd.ExecuteScalarAsync();
+        name.Should().Be("Charlie");
     }
 }
