@@ -52,7 +52,8 @@ public sealed class IntegrationJobExecutor(
                 Status = "QUEUED",
                 Message = "Queued for execution.",
                 StartedAtUtc = DateTimeOffset.UtcNow,
-                RecordsProcessed = 0
+                RecordsProcessed = 0,
+                StartedBy = "Scheduler"
             };
 
         var isTracked = await dbContext.IntegrationJobRuns.AnyAsync(r => r.Id == run.Id);
@@ -70,6 +71,7 @@ public sealed class IntegrationJobExecutor(
 
         try
         {
+            await LogInfoAsync(job.Id, run.Id, $"Job execution started. Triggered by: '{run.StartedBy}'", $"Job Name: {job.Name}");
             int totalProcessed = 0;
             var steps = job.Steps.OrderBy(s => s.OrderIndex).ToList();
             
@@ -78,32 +80,35 @@ public sealed class IntegrationJobExecutor(
                 var source = step.SourceConnector ?? throw new InvalidOperationException($"Source connector is missing for step {step.OrderIndex}.");
                 var destination = step.DestinationConnector ?? throw new InvalidOperationException($"Destination connector is missing for step {step.OrderIndex}.");
 
+                await LogInfoAsync(job.Id, run.Id, $"Starting step {step.OrderIndex + 1}: {source.Name} ({source.Type}) -> {destination.Name} ({destination.Type})");
+
                 int processed;
                 if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.Csv)
                 {
-                    processed = await ExecuteSqlToCsvAsync(source, destination);
+                    processed = await ExecuteSqlToCsvAsync(source, destination, job.Id, run.Id);
                 }
                 else if (source.Type == ConnectorType.Csv && IsSqlConnector(destination.Type))
                 {
-                    processed = await ExecuteCsvToSqlAsync(source, destination);
+                    processed = await ExecuteCsvToSqlAsync(source, destination, job.Id, run.Id);
                 }
                 else if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.Excel)
                 {
-                    processed = await ExecuteSqlToExcelAsync(source, destination);
+                    processed = await ExecuteSqlToExcelAsync(source, destination, job.Id, run.Id);
                 }
                 else if (source.Type == ConnectorType.Excel && IsSqlConnector(destination.Type))
                 {
-                    processed = await ExecuteExcelToSqlAsync(source, destination);
+                    processed = await ExecuteExcelToSqlAsync(source, destination, job.Id, run.Id);
                 }
                 else if (IsSqlConnector(source.Type) && IsSqlConnector(destination.Type))
                 {
-                    processed = await ExecuteSqlToSqlAsync(source, destination);
+                    processed = await ExecuteSqlToSqlAsync(source, destination, job.Id, run.Id);
                 }
                 else
                 {
                     throw new InvalidOperationException($"Unsupported connector direction in step {step.OrderIndex}.");
                 }
                 
+                await LogInfoAsync(job.Id, run.Id, $"Step {step.OrderIndex + 1} completed successfully. {processed} records processed.");
                 totalProcessed += processed;
             }
 
@@ -112,6 +117,7 @@ public sealed class IntegrationJobExecutor(
             run.RecordsProcessed = totalProcessed;
             run.FinishedAtUtc = DateTimeOffset.UtcNow;
             await dbContext.SaveChangesAsync();
+            await LogInfoAsync(job.Id, run.Id, $"Job execution finished successfully.", run.Message);
         }
         catch (Exception ex)
         {
@@ -119,6 +125,7 @@ public sealed class IntegrationJobExecutor(
             run.Message = ex.Message;
             run.FinishedAtUtc = DateTimeOffset.UtcNow;
             await dbContext.SaveChangesAsync();
+            await LogErrorAsync(job.Id, run.Id, $"Job execution failed: {ex.Message}", ex.ToString());
             throw;
         }
     }
@@ -126,17 +133,25 @@ public sealed class IntegrationJobExecutor(
     private static bool IsSqlConnector(ConnectorType type) =>
         type == ConnectorType.SqlServer || type == ConnectorType.Postgres;
 
-    private async Task<int> ExecuteSqlToSqlAsync(Connector source, Connector destination)
+    private async Task<int> ExecuteSqlToSqlAsync(Connector source, Connector destination, Guid jobId, Guid runId)
     {
         var sourceConfig = GetSqlConfig(source);
         
+        await LogInfoAsync(jobId, runId, $"Connecting to source SQL database '{source.SqlDatabase}' on host '{source.SqlHost}'...");
         await using var sourceConn = await CreateAndOpenSqlConnectionAsync(source);
+        await LogInfoAsync(jobId, runId, "Connected to source database successfully.");
+
+        await LogInfoAsync(jobId, runId, $"Connecting to destination SQL database '{destination.SqlDatabase}' on host '{destination.SqlHost}'...");
         await using var destConn = await CreateAndOpenSqlConnectionAsync(destination);
+        await LogInfoAsync(jobId, runId, "Connected to destination database successfully.");
 
         int totalProcessed = 0;
         foreach (var table in sourceConfig.Tables)
         {
-            totalProcessed += await TransferTableAsync(sourceConn, destConn, source.Type, destination.Type, table);
+            await LogInfoAsync(jobId, runId, $"Transferring table '{table.Name}'...");
+            int processed = await TransferTableAsync(sourceConn, destConn, source.Type, destination.Type, table, jobId, runId);
+            await LogInfoAsync(jobId, runId, $"Transferred {processed} record(s) from target table '{table.Name}'.");
+            totalProcessed += processed;
         }
 
         return totalProcessed;
@@ -147,30 +162,47 @@ public sealed class IntegrationJobExecutor(
         DbConnection destConn, 
         ConnectorType sourceType, 
         ConnectorType destType, 
-        SqlTableConfig tableConfig)
+        SqlTableConfig tableConfig,
+        Guid jobId,
+        Guid runId)
     {
-        await EnsureTargetTableExistsAsync(sourceConn, destConn, sourceType, destType, tableConfig);
+        await EnsureTargetTableExistsAsync(sourceConn, destConn, sourceType, destType, tableConfig, jobId, runId);
 
-        var fields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(sourceType, f)));
+        var dbColumns = await GetTableColumnsAsync(destConn, destType, tableConfig.Name);
+
+        var fieldsToTransfer = new List<(string SourceField, string DestColumn)>();
+        foreach (var field in tableConfig.Fields)
+        {
+            if (dbColumns.TryGetValue(field, out var dbColInfo))
+            {
+                fieldsToTransfer.Add((field, dbColInfo.ExactName));
+            }
+            else
+            {
+                fieldsToTransfer.Add((field, field));
+            }
+        }
+
+        var sourceFieldsSql = string.Join(", ", fieldsToTransfer.Select(f => QuoteIdentifier(sourceType, f.SourceField)));
         var sourceTable = QuoteIdentifier(sourceType, tableConfig.Name);
         
         await using var selectCmd = sourceConn.CreateCommand();
-        selectCmd.CommandText = $"SELECT {fields} FROM {sourceTable}";
+        selectCmd.CommandText = $"SELECT {sourceFieldsSql} FROM {sourceTable}";
         
         await using var reader = await selectCmd.ExecuteReaderAsync();
         
-        var destFields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(destType, f)));
-        var placeholders = string.Join(", ", tableConfig.Fields.Select((_, i) => $"@p{i}"));
+        var destFieldsSql = string.Join(", ", fieldsToTransfer.Select(f => QuoteIdentifier(destType, f.DestColumn)));
+        var placeholders = string.Join(", ", fieldsToTransfer.Select((_, i) => $"@p{i}"));
         var destTable = QuoteIdentifier(destType, tableConfig.Name);
         
-        var insertSql = $"INSERT INTO {destTable} ({destFields}) VALUES ({placeholders})";
+        var insertSql = $"INSERT INTO {destTable} ({destFieldsSql}) VALUES ({placeholders})";
         
         int count = 0;
         while (await reader.ReadAsync())
         {
             await using var insertCmd = destConn.CreateCommand();
             insertCmd.CommandText = insertSql;
-            for (int i = 0; i < tableConfig.Fields.Count; i++)
+            for (int i = 0; i < fieldsToTransfer.Count; i++)
             {
                 var param = insertCmd.CreateParameter();
                 param.ParameterName = $"@p{i}";
@@ -189,10 +221,16 @@ public sealed class IntegrationJobExecutor(
         DbConnection destConn, 
         ConnectorType sourceType, 
         ConnectorType destType, 
-        SqlTableConfig tableConfig)
+        SqlTableConfig tableConfig,
+        Guid jobId,
+        Guid runId)
     {
         bool exists = await CheckTableExistsAsync(destConn, destType, tableConfig.Name);
-        if (exists) return;
+        if (exists)
+        {
+            await LogInfoAsync(jobId, runId, $"Target table '{tableConfig.Name}' verified on destination.");
+            return;
+        }
 
         throw new InvalidOperationException($"Target table '{tableConfig.Name}' does not exist on destination.");
     }
@@ -218,7 +256,7 @@ public sealed class IntegrationJobExecutor(
         return type == ConnectorType.SqlServer ? $"[{identifier}]" : $"\"{identifier}\"";
     }
 
-    private async Task<int> ExecuteSqlToCsvAsync(Connector sqlConnector, Connector csvConnector)
+    private async Task<int> ExecuteSqlToCsvAsync(Connector sqlConnector, Connector csvConnector, Guid jobId, Guid runId)
     {
         var csvPath = csvConnector.CsvPath;
         if (string.IsNullOrWhiteSpace(csvPath))
@@ -233,7 +271,9 @@ public sealed class IntegrationJobExecutor(
         }
 
         var sqlConfig = GetSqlConfig(sqlConnector);
+        await LogInfoAsync(jobId, runId, $"Connecting to SQL source database '{sqlConnector.SqlDatabase}' on host '{sqlConnector.SqlHost}'...");
         await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        await LogInfoAsync(jobId, runId, "Connected to source database successfully.");
         
         int totalProcessed = 0;
         foreach (var tableConfig in sqlConfig.Tables)
@@ -241,18 +281,17 @@ public sealed class IntegrationJobExecutor(
             var fields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
             var sourceTable = QuoteIdentifier(sqlConnector.Type, tableConfig.Name);
 
+            await LogInfoAsync(jobId, runId, $"Reading from SQL table '{tableConfig.Name}'...");
             await using var command = sqlConnection.CreateCommand();
             command.CommandText = $"SELECT {fields} FROM {sourceTable}";
 
             await using var reader = await command.ExecuteReaderAsync();
             
-            // For multi-table to CSV, we might want separate files or append. 
-            // For now, let's just use the path as-is, which might overwrite if multiple tables are selected.
-            // A better way would be one file per table: path_TableName.csv
             var tableCsvPath = sqlConfig.Tables.Count > 1 
                 ? Path.Combine(directory!, $"{Path.GetFileNameWithoutExtension(csvPath)}_{tableConfig.Name}{Path.GetExtension(csvPath)}")
                 : csvPath;
 
+            await LogInfoAsync(jobId, runId, $"Writing records to CSV file: '{tableCsvPath}'...");
             await using var writer = new StreamWriter(tableCsvPath, false, Encoding.UTF8);
             await using var csvWriter = new CsvWriter(writer, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
             {
@@ -266,6 +305,7 @@ public sealed class IntegrationJobExecutor(
 
             await csvWriter.NextRecordAsync();
 
+            int tableProcessed = 0;
             while (await reader.ReadAsync())
             {
                 for (var index = 0; index < reader.FieldCount; index++)
@@ -274,14 +314,16 @@ public sealed class IntegrationJobExecutor(
                 }
 
                 await csvWriter.NextRecordAsync();
+                tableProcessed++;
                 totalProcessed++;
             }
+            await LogInfoAsync(jobId, runId, $"Successfully wrote {tableProcessed} record(s) to CSV.");
         }
 
         return totalProcessed;
     }
 
-    private async Task<int> ExecuteCsvToSqlAsync(Connector csvConnector, Connector sqlConnector)
+    private async Task<int> ExecuteCsvToSqlAsync(Connector csvConnector, Connector sqlConnector, Guid jobId, Guid runId)
     {
         var csvPath = csvConnector.CsvPath;
         if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
@@ -295,13 +337,20 @@ public sealed class IntegrationJobExecutor(
              throw new InvalidOperationException("SQL target requires at least one table configuration.");
         }
         
-        // For CSV -> SQL, we assume the CSV maps to the first table in the config for now.
         var tableConfig = sqlConfig.Tables[0];
         var table = tableConfig.Name;
 
+        await LogInfoAsync(jobId, runId, $"Connecting to SQL destination database '{sqlConnector.SqlDatabase}' on host '{sqlConnector.SqlHost}'...");
         await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        await LogInfoAsync(jobId, runId, "Connected to destination database successfully.");
+
+        await EnsureTargetTableExistsAsync(sqlConnection, sqlConnection, sqlConnector.Type, sqlConnector.Type, tableConfig, jobId, runId);
+
+        var dbColumns = await GetTableColumnsAsync(sqlConnection, sqlConnector.Type, table);
+
         var delimiter = string.IsNullOrEmpty(csvConnector.CsvDelimiter) ? "," : csvConnector.CsvDelimiter;
 
+        await LogInfoAsync(jobId, runId, $"Opening CSV source file: '{csvPath}'...");
         using var streamReader = new StreamReader(csvPath);
         using var csvReader = new CsvReader(streamReader, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
         {
@@ -312,39 +361,52 @@ public sealed class IntegrationJobExecutor(
 
         if (!await csvReader.ReadAsync() || !csvReader.ReadHeader())
         {
+            await LogWarningAsync(jobId, runId, "CSV file is empty or missing headers.");
             return 0;
         }
 
         var headers = csvReader.HeaderRecord ?? [];
         if (headers.Length == 0)
         {
+            await LogWarningAsync(jobId, runId, "CSV file is empty or missing headers.");
             return 0;
         }
 
-        // Only insert fields that are both in the CSV and in the SQL config
-        var commonFields = headers.Intersect(tableConfig.Fields, StringComparer.OrdinalIgnoreCase).ToList();
-        if (commonFields.Count == 0)
+        var fieldsToTransfer = new List<(string CsvHeader, string DbColumn, string DbDataType)>();
+        foreach (var configField in tableConfig.Fields)
         {
-            throw new InvalidOperationException($"No matching fields found between CSV and SQL table '{table}'.");
+            var csvHeader = headers.FirstOrDefault(h => string.Equals(h, configField, StringComparison.OrdinalIgnoreCase));
+            var dbColFound = dbColumns.TryGetValue(configField, out var dbColInfo);
+
+            if (csvHeader != null && dbColFound)
+            {
+                fieldsToTransfer.Add((csvHeader, dbColInfo.ExactName, dbColInfo.DataType));
+            }
         }
 
-        string quotedColumns = string.Join(",", commonFields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
-        string parametersSql = string.Join(",", commonFields.Select((_, index) => $"@p{index}"));
+        if (fieldsToTransfer.Count == 0)
+        {
+            throw new InvalidOperationException($"No matching fields found between CSV headers, configuration, and SQL table '{table}'.");
+        }
+
+        string quotedColumns = string.Join(",", fieldsToTransfer.Select(f => QuoteIdentifier(sqlConnector.Type, f.DbColumn)));
+        string parametersSql = string.Join(",", fieldsToTransfer.Select((_, index) => $"@p{index}"));
         
         var commandText = $"INSERT INTO {QuoteIdentifier(sqlConnector.Type, table)} ({quotedColumns}) VALUES ({parametersSql})";
 
+        await LogInfoAsync(jobId, runId, $"Inserting CSV records into SQL table '{table}'...");
         var inserted = 0;
         while (await csvReader.ReadAsync())
         {
             await using var insertCommand = sqlConnection.CreateCommand();
             insertCommand.CommandText = commandText;
-            for (var index = 0; index < commonFields.Count; index++)
+            for (var index = 0; index < fieldsToTransfer.Count; index++)
             {
-                var fieldName = commonFields[index];
-                var value = csvReader.GetField(fieldName);
+                var fieldInfo = fieldsToTransfer[index];
+                var rawValue = csvReader.GetField(fieldInfo.CsvHeader);
                 var param = insertCommand.CreateParameter();
                 param.ParameterName = $"@p{index}";
-                param.Value = value ?? (object)DBNull.Value;
+                param.Value = ConvertValue(rawValue, fieldInfo.DbDataType);
                 insertCommand.Parameters.Add(param);
             }
 
@@ -352,6 +414,7 @@ public sealed class IntegrationJobExecutor(
             inserted++;
         }
 
+        await LogInfoAsync(jobId, runId, $"Successfully inserted {inserted} record(s) into SQL table '{table}'.");
         return inserted;
     }
 
@@ -412,7 +475,7 @@ public sealed class IntegrationJobExecutor(
         return builder.ConnectionString;
     }
 
-    private async Task<int> ExecuteSqlToExcelAsync(Connector sqlConnector, Connector excelConnector)
+    private async Task<int> ExecuteSqlToExcelAsync(Connector sqlConnector, Connector excelConnector, Guid jobId, Guid runId)
     {
         var excelPath = excelConnector.ExcelPath;
         if (string.IsNullOrWhiteSpace(excelPath))
@@ -427,7 +490,9 @@ public sealed class IntegrationJobExecutor(
         }
 
         var sqlConfig = GetSqlConfig(sqlConnector);
+        await LogInfoAsync(jobId, runId, $"Connecting to SQL source database '{sqlConnector.SqlDatabase}' on host '{sqlConnector.SqlHost}'...");
         await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        await LogInfoAsync(jobId, runId, "Connected to source database successfully.");
         
         int totalProcessed = 0;
         foreach (var tableConfig in sqlConfig.Tables)
@@ -435,14 +500,9 @@ public sealed class IntegrationJobExecutor(
             var fields = string.Join(", ", tableConfig.Fields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
             var sourceTable = QuoteIdentifier(sqlConnector.Type, tableConfig.Name);
 
+            await LogInfoAsync(jobId, runId, $"Reading from SQL table '{tableConfig.Name}'...");
             await using var command = sqlConnection.CreateCommand();
             command.CommandText = $"SELECT {fields} FROM {sourceTable}";
-
-            await using var reader = await command.ExecuteReaderAsync();
-            
-            var tableExcelPath = sqlConfig.Tables.Count > 1 
-                ? Path.Combine(directory!, $"{Path.GetFileNameWithoutExtension(excelPath)}_{tableConfig.Name}{Path.GetExtension(excelPath)}")
-                : excelPath;
 
             var sheetName = excelConnector.ExcelSheetName ?? tableConfig.Name;
             if (string.IsNullOrWhiteSpace(sheetName))
@@ -450,23 +510,33 @@ public sealed class IntegrationJobExecutor(
                 sheetName = "Sheet1";
             }
 
+            var tableExcelPath = sqlConfig.Tables.Count > 1 
+                ? Path.Combine(directory!, $"{Path.GetFileNameWithoutExtension(excelPath)}_{tableConfig.Name}{Path.GetExtension(excelPath)}")
+                : excelPath;
+
             if (File.Exists(tableExcelPath))
             {
                 File.Delete(tableExcelPath);
             }
 
-            await MiniExcel.SaveAsAsync(tableExcelPath, reader, sheetName: sheetName);
+            {
+                await using var reader = await command.ExecuteReaderAsync();
+                await LogInfoAsync(jobId, runId, $"Saving Excel sheet '{sheetName}' to: '{tableExcelPath}'...");
+                await MiniExcel.SaveAsAsync(tableExcelPath, reader, sheetName: sheetName);
+                await reader.CloseAsync();
+            }
 
             await using var countCmd = sqlConnection.CreateCommand();
             countCmd.CommandText = $"SELECT COUNT(*) FROM {sourceTable}";
             var count = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
             totalProcessed += count;
+            await LogInfoAsync(jobId, runId, $"Saved {count} record(s) to Excel sheet '{sheetName}'.");
         }
 
         return totalProcessed;
     }
 
-    private async Task<int> ExecuteExcelToSqlAsync(Connector excelConnector, Connector sqlConnector)
+    private async Task<int> ExecuteExcelToSqlAsync(Connector excelConnector, Connector sqlConnector, Guid jobId, Guid runId)
     {
         var excelPath = excelConnector.ExcelPath;
         if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
@@ -483,43 +553,65 @@ public sealed class IntegrationJobExecutor(
         var tableConfig = sqlConfig.Tables[0];
         var table = tableConfig.Name;
 
+        await LogInfoAsync(jobId, runId, $"Connecting to SQL destination database '{sqlConnector.SqlDatabase}' on host '{sqlConnector.SqlHost}'...");
         await using var sqlConnection = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        await LogInfoAsync(jobId, runId, "Connected to destination database successfully.");
+
+        await EnsureTargetTableExistsAsync(sqlConnection, sqlConnection, sqlConnector.Type, sqlConnector.Type, tableConfig, jobId, runId);
+
+        var dbColumns = await GetTableColumnsAsync(sqlConnection, sqlConnector.Type, table);
+
         var sheetName = excelConnector.ExcelSheetName;
         
+        await LogInfoAsync(jobId, runId, $"Opening Excel source file: '{excelPath}' (Sheet: '{sheetName ?? "Default"}')...");
         var rowsEnumerable = await MiniExcel.QueryAsync(excelPath, useHeaderRow: true, sheetName: sheetName);
         var rows = rowsEnumerable.Cast<IDictionary<string, object>>().ToList();
 
         if (rows.Count == 0)
         {
+            await LogWarningAsync(jobId, runId, "Excel file is empty or missing data.");
             return 0;
         }
 
         var headers = rows[0].Keys.ToList();
-        var commonFields = headers.Intersect(tableConfig.Fields, StringComparer.OrdinalIgnoreCase).ToList();
-        if (commonFields.Count == 0)
+        var fieldsToTransfer = new List<(string ExcelHeader, string DbColumn, string DbDataType)>();
+        foreach (var configField in tableConfig.Fields)
         {
-            throw new InvalidOperationException($"No matching fields found between Excel sheet and SQL table '{table}'.");
+            var excelHeader = headers.FirstOrDefault(h => string.Equals(h, configField, StringComparison.OrdinalIgnoreCase));
+            var dbColFound = dbColumns.TryGetValue(configField, out var dbColInfo);
+
+            if (excelHeader != null && dbColFound)
+            {
+                fieldsToTransfer.Add((excelHeader, dbColInfo.ExactName, dbColInfo.DataType));
+            }
         }
 
-        string quotedColumns = string.Join(",", commonFields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
-        string parametersSql = string.Join(",", commonFields.Select((_, index) => $"@p{index}"));
+        if (fieldsToTransfer.Count == 0)
+        {
+            throw new InvalidOperationException($"No matching fields found between Excel sheet, configuration, and SQL table '{table}'.");
+        }
+
+        string quotedColumns = string.Join(",", fieldsToTransfer.Select(f => QuoteIdentifier(sqlConnector.Type, f.DbColumn)));
+        string parametersSql = string.Join(",", fieldsToTransfer.Select((_, index) => $"@p{index}"));
         
         var commandText = $"INSERT INTO {QuoteIdentifier(sqlConnector.Type, table)} ({quotedColumns}) VALUES ({parametersSql})";
 
+        await LogInfoAsync(jobId, runId, $"Inserting Excel records into SQL table '{table}'...");
         var inserted = 0;
         foreach (var row in rows)
         {
             await using var insertCommand = sqlConnection.CreateCommand();
             insertCommand.CommandText = commandText;
-            for (var index = 0; index < commonFields.Count; index++)
+            for (var index = 0; index < fieldsToTransfer.Count; index++)
             {
-                var fieldName = commonFields[index];
-                var key = row.Keys.FirstOrDefault(k => string.Equals(k, fieldName, StringComparison.OrdinalIgnoreCase));
-                var value = key != null ? row[key] : null;
+                var fieldInfo = fieldsToTransfer[index];
+                
+                var key = row.Keys.FirstOrDefault(k => string.Equals(k, fieldInfo.ExcelHeader, StringComparison.OrdinalIgnoreCase));
+                var rawValue = key != null ? row[key] : null;
 
                 var param = insertCommand.CreateParameter();
                 param.ParameterName = $"@p{index}";
-                param.Value = value ?? DBNull.Value;
+                param.Value = ConvertValue(rawValue, fieldInfo.DbDataType);
                 insertCommand.Parameters.Add(param);
             }
 
@@ -527,6 +619,191 @@ public sealed class IntegrationJobExecutor(
             inserted++;
         }
 
+        await LogInfoAsync(jobId, runId, $"Successfully inserted {inserted} record(s) into SQL table '{table}'.");
         return inserted;
+    }
+
+    private async Task LogInfoAsync(Guid jobId, Guid runId, string message, string? details = null)
+    {
+        await LogEntryAsync(jobId, runId, "INFO", message, details);
+    }
+
+    private async Task LogErrorAsync(Guid jobId, Guid runId, string message, string? details = null)
+    {
+        await LogEntryAsync(jobId, runId, "ERROR", message, details);
+    }
+
+    private async Task LogWarningAsync(Guid jobId, Guid runId, string message, string? details = null)
+    {
+        await LogEntryAsync(jobId, runId, "WARN", message, details);
+    }
+
+    private async Task LogEntryAsync(Guid jobId, Guid runId, string level, string message, string? details)
+    {
+        try
+        {
+            var logEntry = new IntegrationJobLogEntry
+            {
+                Id = Guid.NewGuid(),
+                IntegrationJobId = jobId,
+                IntegrationJobRunId = runId,
+                TimestampUtc = DateTimeOffset.UtcNow,
+                LogLevel = level,
+                Message = message,
+                Details = details
+            };
+
+            dbContext.Set<IntegrationJobLogEntry>().Add(logEntry);
+            await dbContext.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error writing log to DB: {ex.Message}");
+        }
+    }
+    private async Task<Dictionary<string, (string ExactName, string DataType)>> GetTableColumnsAsync(
+        DbConnection conn,
+        ConnectorType type,
+        string tableName)
+    {
+        var columns = new Dictionary<string, (string ExactName, string DataType)>(StringComparer.OrdinalIgnoreCase);
+
+        await using var cmd = conn.CreateCommand();
+        if (type == ConnectorType.SqlServer)
+        {
+            cmd.CommandText = "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName";
+            var param = cmd.CreateParameter();
+            param.ParameterName = "@tableName";
+            param.Value = tableName;
+            cmd.Parameters.Add(param);
+        }
+        else
+        {
+            cmd.CommandText = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = @tableName";
+            var param = cmd.CreateParameter();
+            param.ParameterName = "@tableName";
+            param.Value = tableName;
+            cmd.Parameters.Add(param);
+        }
+
+        await using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                var colName = reader.GetString(0);
+                var dataType = reader.GetString(1);
+                columns[colName] = (colName, dataType);
+            }
+        }
+
+        if (columns.Count == 0 && type == ConnectorType.Postgres)
+        {
+            await using var cmdFallback = conn.CreateCommand();
+            cmdFallback.CommandText = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = @tableName";
+            var paramFallback = cmdFallback.CreateParameter();
+            paramFallback.ParameterName = "@tableName";
+            paramFallback.Value = tableName.ToLowerInvariant();
+            cmdFallback.Parameters.Add(paramFallback);
+
+            await using var readerFallback = await cmdFallback.ExecuteReaderAsync();
+            while (await readerFallback.ReadAsync())
+            {
+                var colName = readerFallback.GetString(0);
+                var dataType = readerFallback.GetString(1);
+                columns[colName] = (colName, dataType);
+            }
+        }
+
+        return columns;
+    }
+
+    private object ConvertValue(object? rawValue, string dbType)
+    {
+        if (rawValue == null || rawValue is DBNull)
+        {
+            return DBNull.Value;
+        }
+
+        var strVal = rawValue.ToString();
+        if (string.IsNullOrWhiteSpace(strVal))
+        {
+            return DBNull.Value;
+        }
+
+        var normalizedType = dbType.ToLowerInvariant();
+
+        if (normalizedType.Contains("int") || normalizedType == "bigint" || normalizedType == "smallint" || normalizedType == "tinyint")
+        {
+            if (long.TryParse(strVal, out long longVal))
+            {
+                if (normalizedType == "int" || normalizedType == "integer")
+                {
+                    return (int)longVal;
+                }
+                if (normalizedType == "smallint")
+                {
+                    return (short)longVal;
+                }
+                if (normalizedType == "tinyint")
+                {
+                    return (byte)longVal;
+                }
+                return longVal;
+            }
+        }
+
+        if (normalizedType.Contains("decimal") || normalizedType.Contains("numeric") || normalizedType.Contains("double") || normalizedType == "real" || normalizedType == "float")
+        {
+            if (decimal.TryParse(strVal, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal decVal))
+            {
+                if (normalizedType == "real" || normalizedType == "float")
+                {
+                    return (double)decVal;
+                }
+                return decVal;
+            }
+            else if (double.TryParse(strVal, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double doubleVal))
+            {
+                return doubleVal;
+            }
+        }
+
+        if (normalizedType == "boolean" || normalizedType == "bool" || normalizedType == "bit")
+        {
+            if (bool.TryParse(strVal, out bool boolVal))
+            {
+                return boolVal;
+            }
+            if (strVal == "1" || strVal.Equals("true", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (strVal == "0" || strVal.Equals("false", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        if (normalizedType == "uuid" || normalizedType == "uniqueidentifier")
+        {
+            if (Guid.TryParse(strVal, out Guid guidVal))
+            {
+                return guidVal;
+            }
+        }
+
+        if (normalizedType.Contains("date") || normalizedType.Contains("time"))
+        {
+            if (DateTime.TryParse(strVal, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime dtVal))
+            {
+                return dtVal;
+            }
+            if (DateTime.TryParse(strVal, out DateTime dtValLocal))
+            {
+                return dtValLocal;
+            }
+        }
+
+        return rawValue;
     }
 }
