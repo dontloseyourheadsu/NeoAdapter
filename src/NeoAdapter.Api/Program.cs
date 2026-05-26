@@ -48,6 +48,7 @@ builder.Services.AddHangfireServer();
 builder.Services.AddDataProtection();
 
 builder.Services.AddNeoAdapterApplicationServices();
+builder.Services.AddHttpClient();
 builder.Services.AddHealthChecks();
 
 builder.Services.AddControllers();
