@@ -178,6 +178,28 @@ using (var scope = app.Services.CreateScope())
                 destination_connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE RESTRICT
             );
         ");
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_job_groups (
+                integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
+                group_id uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                PRIMARY KEY (integration_job_id, group_id)
+            );
+        ");
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='integration_jobs' AND column_name='owner_group_id') THEN
+                    INSERT INTO integration_job_groups (integration_job_id, group_id)
+                    SELECT id, owner_group_id
+                    FROM integration_jobs
+                    WHERE owner_group_id IS NOT NULL
+                    ON CONFLICT DO NOTHING;
+                END IF;
+            END $$;
+        ");
+
         
         await dbContext.Database.ExecuteSqlRawAsync(@"
             DO $$ 

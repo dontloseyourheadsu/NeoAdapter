@@ -24,7 +24,7 @@ public sealed class DashboardService(NeoAdapterDbContext dbContext) : IDashboard
         if (filter.OrganizationId.HasValue)
             jobsQuery = jobsQuery.Where(j => j.OwnerOrganizationId == filter.OrganizationId);
         if (filter.GroupId.HasValue)
-            jobsQuery = jobsQuery.Where(j => j.OwnerGroupId == filter.GroupId);
+            jobsQuery = jobsQuery.Where(j => j.OwnerGroupId == filter.GroupId || j.Groups.Any(g => g.Id == filter.GroupId.Value));
         if (filter.UserId.HasValue)
             jobsQuery = jobsQuery.Where(j => j.OwnerUserId == filter.UserId);
 
