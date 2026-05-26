@@ -45,6 +45,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private readonly ConnectorApiClient _connectorApiClient;
     private readonly IntegrationJobsApiClient _integrationJobsApiClient;
     private readonly TokenStorage _tokenStorage;
+    private readonly OrgAdminApiClient _orgAdminApiClient;
     private readonly PeriodicTimer _refreshTimer = new(TimeSpan.FromSeconds(8));
     private readonly CancellationTokenSource _refreshCts = new();
     private bool _isRefreshing;
@@ -58,7 +59,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             new DashboardApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }),
             new ConnectorApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }),
             new IntegrationJobsApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }),
-            new TokenStorage())
+            new TokenStorage(),
+            new OrgAdminApiClient(new HttpClient { BaseAddress = new Uri("http://localhost:5193/") }))
     {
     }
 
@@ -68,7 +70,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         DashboardApiClient dashboardApiClient,
         ConnectorApiClient connectorApiClient,
         IntegrationJobsApiClient integrationJobsApiClient,
-        TokenStorage tokenStorage)
+        TokenStorage tokenStorage,
+        OrgAdminApiClient orgAdminApiClient)
     {
         _httpClient = httpClient;
         _authApiClient = authApiClient;
@@ -76,6 +79,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         _connectorApiClient = connectorApiClient;
         _integrationJobsApiClient = integrationJobsApiClient;
         _tokenStorage = tokenStorage;
+        _orgAdminApiClient = orgAdminApiClient;
 
         LoginCommand = new AsyncRelayCommand(() => LoginAsync(_refreshCts.Token));
         RegisterCommand = new AsyncRelayCommand(() => RegisterAsync(_refreshCts.Token));
@@ -88,6 +92,9 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         LoadMoreLogsCommand = new AsyncRelayCommand(() => LoadLogEntriesAsync(SelectedLogRun, reset: false));
         ViewJobLogsCommand = new RelayCommand<IntegrationJobDto>(ViewJobLogs);
         ViewJobLogsFromSummaryCommand = new RelayCommand<DashboardJobSummaryItem>(ViewJobLogsFromSummary);
+        ClearGroupCommand = new RelayCommand(() => SelectedOrgUserGroup = null);
+        SaveUserRolesCommand = new AsyncRelayCommand(() => SaveUserRolesAsync(_refreshCts.Token));
+        LoadOrgUsersCommand = new AsyncRelayCommand(() => LoadOrgUsersAsync(_refreshCts.Token));
     }
 
     public ObservableCollection<DashboardJobSummaryItem> DashboardJobs { get; } = [];
@@ -121,6 +128,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     public IRelayCommand<IntegrationJobDto> ViewJobLogsCommand { get; }
 
     public IRelayCommand<DashboardJobSummaryItem> ViewJobLogsFromSummaryCommand { get; }
+    public IRelayCommand ClearGroupCommand { get; }
+    public IAsyncRelayCommand SaveUserRolesCommand { get; }
+    public IAsyncRelayCommand LoadOrgUsersCommand { get; }
+
+    public ObservableCollection<OrganizationUserDto> OrgUsers { get; } = [];
+    public ObservableCollection<OrganizationGroupDto> OrgGroups { get; } = [];
 
     [ObservableProperty]
     private int _selectedTabIndex;
@@ -133,6 +146,27 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private bool _logHasMore;
+
+    [ObservableProperty]
+    private bool _isAdmin;
+
+    [ObservableProperty]
+    private OrganizationUserDto? _selectedOrgUser;
+
+    [ObservableProperty]
+    private OrganizationGroupDto? _selectedOrgUserGroup;
+
+    [ObservableProperty]
+    private bool _editUserRoleRead;
+
+    [ObservableProperty]
+    private bool _editUserRoleEdit;
+
+    [ObservableProperty]
+    private bool _editUserRoleCreate;
+
+    [ObservableProperty]
+    private bool _editUserRoleAdmin;
 
     [ObservableProperty]
     private bool _logIsLoading;
@@ -613,6 +647,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         _currentRefreshToken = response.RefreshToken;
         
         IsAuthenticated = true;
+        IsAdmin = response.IsAdmin;
         CurrentUsername = response.Username;
         LoginPassword = string.Empty;
         ErrorMessage = null;
@@ -620,7 +655,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
         if (!string.IsNullOrEmpty(response.RefreshToken))
         {
-            await _tokenStorage.SaveAsync(new StoredTokens(response.AccessToken, response.RefreshToken, response.ExpiresAtUtc));
+            await _tokenStorage.SaveAsync(new StoredTokens(response.AccessToken, response.RefreshToken, response.ExpiresAtUtc, response.IsAdmin));
         }
     }
 
@@ -632,12 +667,17 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         _tokenStorage.Clear();
 
         IsAuthenticated = false;
+        IsAdmin = false;
         CurrentUsername = string.Empty;
         StatusMessage = "Signed out.";
         ReplaceAll(DashboardJobs, []);
         ReplaceAll(DashboardRuns, []);
         ReplaceAll(Connectors, []);
         ReplaceAll(IntegrationJobs, []);
+        OrgUsers.Clear();
+        OrgGroups.Clear();
+        SelectedOrgUser = null;
+        SelectedOrgUserGroup = null;
     }
 
     partial void OnIsAuthenticatedChanged(bool value)
@@ -653,6 +693,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         if (tokens is null) return;
 
         _currentRefreshToken = tokens.RefreshToken;
+        IsAdmin = tokens.IsAdmin;
         
         // Even if access token is not expired, we might want to refresh it to be safe 
         // or just apply it. Let's try to refresh immediately to ensure the session is still valid.
@@ -719,6 +760,10 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         {
             SelectedLogJob = IntegrationJobs[0];
         }
+        else if (value == 3)
+        {
+            _ = LoadOrgUsersAsync(_refreshCts.Token);
+        }
     }
 
     partial void OnSelectedLogJobChanged(IntegrationJobDto? value)
@@ -729,6 +774,100 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     partial void OnSelectedLogRunChanged(IntegrationJobRunDto? value)
     {
         _ = LoadLogEntriesAsync(value, reset: true);
+    }
+
+    partial void OnSelectedOrgUserChanged(OrganizationUserDto? value)
+    {
+        if (value != null)
+        {
+            EditUserRoleRead = value.RoleRead;
+            EditUserRoleEdit = value.RoleEdit;
+            EditUserRoleCreate = value.RoleCreate;
+            EditUserRoleAdmin = value.RoleAdmin;
+            SelectedOrgUserGroup = OrgGroups.FirstOrDefault(g => g.Id == value.GroupId);
+        }
+        else
+        {
+            EditUserRoleRead = false;
+            EditUserRoleEdit = false;
+            EditUserRoleCreate = false;
+            EditUserRoleAdmin = false;
+            SelectedOrgUserGroup = null;
+        }
+        ErrorMessage = string.Empty;
+        StatusMessage = string.Empty;
+    }
+
+    private async Task LoadOrgUsersAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            ErrorMessage = string.Empty;
+            StatusMessage = "Loading users...";
+            var users = await _orgAdminApiClient.GetUsersAsync(cancellationToken);
+            var groups = await _orgAdminApiClient.GetGroupsAsync(cancellationToken);
+
+            OrgUsers.Clear();
+            foreach (var user in users)
+            {
+                OrgUsers.Add(user);
+            }
+
+            OrgGroups.Clear();
+            foreach (var group in groups)
+            {
+                OrgGroups.Add(group);
+            }
+            StatusMessage = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load organization data: {ex.Message}";
+            StatusMessage = string.Empty;
+        }
+    }
+
+    private async Task SaveUserRolesAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedOrgUser == null) return;
+        try
+        {
+            ErrorMessage = string.Empty;
+            StatusMessage = "Saving changes...";
+
+            // Client-side validation:
+            if ((EditUserRoleEdit || EditUserRoleCreate) && !EditUserRoleRead)
+            {
+                ErrorMessage = "Edit and Create permissions require Read permission.";
+                StatusMessage = string.Empty;
+                return;
+            }
+            if (EditUserRoleCreate && !EditUserRoleEdit)
+            {
+                ErrorMessage = "Create permission requires Edit permission.";
+                StatusMessage = string.Empty;
+                return;
+            }
+
+            var request = new UpdateUserRolesRequest(
+                EditUserRoleRead,
+                EditUserRoleEdit,
+                EditUserRoleCreate,
+                EditUserRoleAdmin,
+                SelectedOrgUserGroup?.Id
+            );
+
+            await _orgAdminApiClient.UpdateUserRolesAsync(SelectedOrgUser.Id, request, cancellationToken);
+            StatusMessage = "User roles updated successfully.";
+            
+            // Reload users to update UI lists
+            await LoadOrgUsersAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            StatusMessage = string.Empty;
+        }
     }
 
     private async Task LoadLogRunsAsync(IntegrationJobDto? job)

@@ -8,7 +8,8 @@ namespace NeoAdapter.Frontend.Services;
 public sealed record StoredTokens(
     string AccessToken,
     string RefreshToken,
-    DateTimeOffset ExpiresAtUtc);
+    DateTimeOffset ExpiresAtUtc,
+    bool IsAdmin = false);
 
 public sealed class TokenStorage
 {
@@ -26,7 +27,7 @@ public sealed class TokenStorage
     {
         try
         {
-            var json = JsonSerializer.Serialize(tokens);
+            var json = JsonSerializer.Serialize(tokens, NeoAdapterJsonSerializerContext.Default.StoredTokens);
             await File.WriteAllTextAsync(GetFilePath(), json);
         }
         catch
@@ -43,7 +44,7 @@ public sealed class TokenStorage
             if (!File.Exists(path)) return null;
 
             var json = await File.ReadAllTextAsync(path);
-            return JsonSerializer.Deserialize<StoredTokens>(json);
+            return JsonSerializer.Deserialize(json, NeoAdapterJsonSerializerContext.Default.StoredTokens);
         }
         catch
         {

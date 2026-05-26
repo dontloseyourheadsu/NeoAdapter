@@ -29,6 +29,12 @@ namespace NeoAdapter.Frontend.Services;
 [JsonSerializable(typeof(JobLogDto))]
 [JsonSerializable(typeof(IReadOnlyList<JobLogDto>))]
 [JsonSerializable(typeof(JobLogsResponse))]
+[JsonSerializable(typeof(OrganizationUserDto))]
+[JsonSerializable(typeof(IReadOnlyList<OrganizationUserDto>))]
+[JsonSerializable(typeof(OrganizationGroupDto))]
+[JsonSerializable(typeof(IReadOnlyList<OrganizationGroupDto>))]
+[JsonSerializable(typeof(UpdateUserRolesRequest))]
+[JsonSerializable(typeof(StoredTokens))]
 internal partial class NeoAdapterJsonSerializerContext : JsonSerializerContext
 {
 }

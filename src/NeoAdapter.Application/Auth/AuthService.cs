@@ -44,6 +44,10 @@ public sealed class AuthService(
             PasswordSalt = salt,
             OrganizationId = defaultOrg.Id,
             Role = "User",
+            RoleRead = true,
+            RoleEdit = true,
+            RoleCreate = true,
+            RoleAdmin = false,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             LastLoginAtUtc = DateTimeOffset.UtcNow
         };
@@ -52,7 +56,7 @@ public sealed class AuthService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         var accessToken = jwtTokenService.CreateAccessToken(user);
-        return new AuthResponse(user.Id, user.Username, accessToken.Token, accessToken.ExpiresAtUtc);
+        return new AuthResponse(user.Id, user.Username, accessToken.Token, accessToken.ExpiresAtUtc, IsAdmin: user.RoleAdmin);
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
@@ -96,7 +100,7 @@ public sealed class AuthService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return new AuthResponse(user.Id, user.Username, accessToken.Token, accessToken.ExpiresAtUtc, refreshTokenValue);
+        return new AuthResponse(user.Id, user.Username, accessToken.Token, accessToken.ExpiresAtUtc, refreshTokenValue, IsAdmin: user.RoleAdmin);
     }
 
     public async Task<AuthResponse> RefreshTokenAsync(RefreshTokenRequest request, CancellationToken cancellationToken)
@@ -142,6 +146,7 @@ public sealed class AuthService(
             storedToken.User.Username, 
             accessToken.Token, 
             accessToken.ExpiresAtUtc, 
-            newRefreshToken.Token);
+            newRefreshToken.Token,
+            IsAdmin: storedToken.User.RoleAdmin);
     }
 }

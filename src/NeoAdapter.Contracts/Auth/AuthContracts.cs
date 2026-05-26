@@ -17,4 +17,6 @@ public sealed record AuthResponse(
     string Username,
     string AccessToken,
     DateTimeOffset ExpiresAtUtc,
-    string? RefreshToken = null);
+    string? RefreshToken = null,
+    bool IsAdmin = false);
+

@@ -16,8 +16,13 @@ public sealed class IntegrationJobService(
     IIntegrationJobScheduler integrationJobScheduler,
     IConnectorService connectorService) : IIntegrationJobService
 {
-    public async Task<IReadOnlyList<IntegrationJobDto>> GetAllAsync(Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<IntegrationJobDto>> GetAllAsync(Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
+        if (!roleRead && !roleAdmin)
+        {
+            throw new UnauthorizedAccessException("You do not have permission to view integration jobs.");
+        }
+
         IQueryable<IntegrationJob> query = dbContext.IntegrationJobs
             .AsNoTracking()
             .Include(job => job.Steps)
@@ -25,7 +30,7 @@ public sealed class IntegrationJobService(
             .Include(job => job.Steps)
                 .ThenInclude(step => step.DestinationConnector);
 
-        if (role == "Admin")
+        if (roleAdmin || role == "Admin")
         {
             query = query.Where(job => job.OwnerOrganizationId == organizationId);
         }
@@ -56,8 +61,13 @@ public sealed class IntegrationJobService(
         return jobs.Select(job => MapToDto(job, latestRunsMap.GetValueOrDefault(job.Id))).ToArray();
     }
 
-    public async Task<IntegrationJobDto> CreateAsync(CreateIntegrationJobRequest request, CancellationToken cancellationToken)
+    public async Task<IntegrationJobDto> CreateAsync(CreateIntegrationJobRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleCreate, bool roleAdmin, CancellationToken cancellationToken)
     {
+        if (!roleCreate && !roleAdmin)
+        {
+            throw new UnauthorizedAccessException("You do not have permission to create integration jobs.");
+        }
+
         var trimmedName = request.Name.Trim();
         if (string.IsNullOrWhiteSpace(trimmedName))
         {
@@ -80,6 +90,11 @@ public sealed class IntegrationJobService(
         if (request.OwnerUserId == null && request.OwnerGroupId == null && request.OwnerOrganizationId == null)
         {
             throw new InvalidOperationException("Integration job must have an owner (User, Group, or Organization).");
+        }
+
+        if (request.OwnerOrganizationId != organizationId)
+        {
+            throw new InvalidOperationException("You can only create jobs for your own organization.");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -107,14 +122,14 @@ public sealed class IntegrationJobService(
                 stepRequest.SourceType,
                 stepRequest.SourceSql,
                 stepRequest.SourceCsv,
-                null), cancellationToken);
+                null), userId, organizationId, groupId, role, roleCreate, roleAdmin, cancellationToken);
 
             var destinationConnectorDto = await connectorService.CreateAsync(new CreateConnectorRequest(
                 $"{trimmedName} - Step {stepRequest.OrderIndex} Destination",
                 stepRequest.DestinationType,
                 stepRequest.DestinationSql,
                 stepRequest.DestinationCsv,
-                null), cancellationToken);
+                null), userId, organizationId, groupId, role, roleCreate, roleAdmin, cancellationToken);
 
             job.Steps.Add(new IntegrationJobStep
             {
@@ -141,8 +156,15 @@ public sealed class IntegrationJobService(
         return MapToDto(savedJob, null);
     }
 
-    public async Task<EnqueueIntegrationJobResponse> EnqueueRunAsync(Guid integrationJobId, string startedBy, CancellationToken cancellationToken)
+    public async Task<EnqueueIntegrationJobResponse> EnqueueRunAsync(Guid integrationJobId, string startedBy, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
     {
+        if (!roleEdit && !roleAdmin)
+        {
+            throw new UnauthorizedAccessException("You do not have permission to run/edit integration jobs.");
+        }
+
+        await EnsureJobAccessForWriteAsync(integrationJobId, userId, organizationId, groupId, role, roleEdit, roleAdmin, cancellationToken);
+
         var job = await dbContext.IntegrationJobs
             .FirstOrDefaultAsync(item => item.Id == integrationJobId, cancellationToken)
             ?? throw new InvalidOperationException("Integration job not found.");
@@ -174,9 +196,9 @@ public sealed class IntegrationJobService(
         return new EnqueueIntegrationJobResponse(integrationJobId, hangfireJobId, DateTimeOffset.UtcNow);
     }
 
-    public async Task<IReadOnlyList<IntegrationJobRunDto>> GetJobRunsAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<IntegrationJobRunDto>> GetJobRunsAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
-        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, cancellationToken);
+        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, roleRead, roleAdmin, cancellationToken);
 
         return await dbContext.IntegrationJobRuns
             .AsNoTracking()
@@ -196,9 +218,9 @@ public sealed class IntegrationJobService(
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<JobLogsResponse> GetJobLogsAsync(Guid jobId, Guid? runId, DateTimeOffset? cursor, int limit, Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
+    public async Task<JobLogsResponse> GetJobLogsAsync(Guid jobId, Guid? runId, DateTimeOffset? cursor, int limit, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
-        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, cancellationToken);
+        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, roleRead, roleAdmin, cancellationToken);
 
         IQueryable<IntegrationJobLogEntry> query = dbContext.IntegrationJobLogs
             .AsNoTracking()
@@ -232,15 +254,49 @@ public sealed class IntegrationJobService(
         return new JobLogsResponse(logs, nextCursor);
     }
 
-    private async Task EnsureJobAccessAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
+    private async Task EnsureJobAccessAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
+        if (!roleRead && !roleAdmin)
+        {
+            throw new UnauthorizedAccessException("You do not have permission to read jobs.");
+        }
+
         var job = await dbContext.IntegrationJobs
             .AsNoTracking()
             .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
             ?? throw new KeyNotFoundException("Integration job not found.");
 
         bool hasAccess;
-        if (role == "Admin")
+        if (roleAdmin || role == "Admin")
+        {
+            hasAccess = job.OwnerOrganizationId == organizationId;
+        }
+        else
+        {
+            hasAccess = job.OwnerOrganizationId == organizationId &&
+                (job.OwnerGroupId == null || job.OwnerGroupId == groupId || job.OwnerUserId == userId);
+        }
+
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("You do not have access to this integration job.");
+        }
+    }
+
+    private async Task EnsureJobAccessForWriteAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        if (!roleEdit && !roleAdmin)
+        {
+            throw new UnauthorizedAccessException("You do not have permission to edit/write jobs.");
+        }
+
+        var job = await dbContext.IntegrationJobs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+
+        bool hasAccess;
+        if (roleAdmin || role == "Admin")
         {
             hasAccess = job.OwnerOrganizationId == organizationId;
         }

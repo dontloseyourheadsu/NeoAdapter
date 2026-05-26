@@ -113,8 +113,9 @@ public partial class App : Application
         var dashboardApiClient = new DashboardApiClient(httpClient);
         var connectorApiClient = new ConnectorApiClient(httpClient);
         var integrationJobsApiClient = new IntegrationJobsApiClient(httpClient);
+        var orgAdminApiClient = new OrgAdminApiClient(httpClient);
         var tokenStorage = new TokenStorage();
-        var viewModel = new MainViewModel(httpClient, authApiClient, dashboardApiClient, connectorApiClient, integrationJobsApiClient, tokenStorage);
+        var viewModel = new MainViewModel(httpClient, authApiClient, dashboardApiClient, connectorApiClient, integrationJobsApiClient, tokenStorage, orgAdminApiClient);
 
         // Use a background task to start auto-login without blocking UI thread but in a controlled way
         Task.Run(async () => {
@@ -122,5 +123,5 @@ public partial class App : Application
         });
 
         return viewModel;
-        }
+    }
         }

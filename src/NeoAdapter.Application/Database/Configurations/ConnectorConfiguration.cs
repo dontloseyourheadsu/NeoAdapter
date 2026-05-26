@@ -80,5 +80,28 @@ public sealed class ConnectorConfiguration : IEntityTypeConfiguration<Connector>
             .HasColumnName("updated_at_utc")
             .HasColumnType("timestamp with time zone")
             .IsRequired();
+        builder.Property(connector => connector.OwnerUserId)
+            .HasColumnName("owner_user_id");
+
+        builder.Property(connector => connector.OwnerGroupId)
+            .HasColumnName("owner_group_id");
+
+        builder.Property(connector => connector.OwnerOrganizationId)
+            .HasColumnName("owner_organization_id");
+
+        builder.HasOne(connector => connector.OwnerUser)
+            .WithMany()
+            .HasForeignKey(connector => connector.OwnerUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(connector => connector.OwnerGroup)
+            .WithMany()
+            .HasForeignKey(connector => connector.OwnerGroupId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(connector => connector.OwnerOrganization)
+            .WithMany()
+            .HasForeignKey(connector => connector.OwnerOrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
