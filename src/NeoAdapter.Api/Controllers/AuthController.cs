@@ -75,7 +75,7 @@ public sealed class AuthController(
         }
 
         [HttpGet("google/login")]
-        public IActionResult GoogleLogin([FromQuery] int port)
+        public IActionResult GoogleLogin([FromQuery] string port)
         {
             var clientId = configuration["Authentication:Google:ClientId"];
             if (string.IsNullOrEmpty(clientId))
@@ -91,7 +91,7 @@ public sealed class AuthController(
                           $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
                           $"&response_type=code" +
                           $"&scope=openid%20email%20profile" +
-                          $"&state={port}" +
+                          $"&state={Uri.EscapeDataString(port)}" +
                           $"&prompt=select_account";
 
             return Redirect(authUrl);
@@ -104,14 +104,25 @@ public sealed class AuthController(
             [FromQuery] string? error,
             CancellationToken cancellationToken)
         {
-            var port = state;
-            if (string.IsNullOrEmpty(port) || !int.TryParse(port, out _))
+            var rawState = state ?? "5055";
+            string? webRedirectUrl = null;
+            string port = "5055";
+
+            if (rawState.StartsWith("web:"))
             {
-                port = "5055"; // default fallback port
+                webRedirectUrl = rawState.Substring(4);
+            }
+            else
+            {
+                port = rawState;
             }
 
             if (!string.IsNullOrEmpty(error))
             {
+                if (webRedirectUrl != null)
+                {
+                    return Redirect($"{webRedirectUrl.TrimEnd('/')}?error={Uri.EscapeDataString(error)}");
+                }
                 return Redirect($"http://127.0.0.1:{port}/callback?error={Uri.EscapeDataString(error)}");
             }
 
@@ -171,21 +182,28 @@ public sealed class AuthController(
                 var authResponse = await authService.ProcessGoogleUserAsync(googleUser, cancellationToken);
 
                 var expiresAtUtcString = authResponse.ExpiresAtUtc.ToString("o");
-                var redirectUrl = $"http://127.0.0.1:{port}/callback?" +
-                                  $"token={Uri.EscapeDataString(authResponse.AccessToken)}" +
-                                  $"&username={Uri.EscapeDataString(authResponse.Username)}" +
-                                  $"&isAdmin={authResponse.IsAdmin.ToString().ToLower()}" +
-                                  $"&expiresAtUtc={Uri.EscapeDataString(expiresAtUtcString)}";
+                var redirectParams = $"?token={Uri.EscapeDataString(authResponse.AccessToken)}" +
+                                     $"&username={Uri.EscapeDataString(authResponse.Username)}" +
+                                     $"&isAdmin={authResponse.IsAdmin.ToString().ToLower()}" +
+                                     $"&expiresAtUtc={Uri.EscapeDataString(expiresAtUtcString)}";
 
                 if (!string.IsNullOrEmpty(authResponse.RefreshToken))
                 {
-                    redirectUrl += $"&refreshToken={Uri.EscapeDataString(authResponse.RefreshToken)}";
+                    redirectParams += $"&refreshToken={Uri.EscapeDataString(authResponse.RefreshToken)}";
                 }
 
-                return Redirect(redirectUrl);
+                if (webRedirectUrl != null)
+                {
+                    return Redirect($"{webRedirectUrl.TrimEnd('/')}{redirectParams}");
+                }
+                return Redirect($"http://127.0.0.1:{port}/callback{redirectParams}");
             }
             catch (Exception ex)
             {
+                if (webRedirectUrl != null)
+                {
+                    return Redirect($"{webRedirectUrl.TrimEnd('/')}?error={Uri.EscapeDataString(ex.Message)}");
+                }
                 return Redirect($"http://127.0.0.1:{port}/callback?error={Uri.EscapeDataString(ex.Message)}");
             }
         }

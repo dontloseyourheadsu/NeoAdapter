@@ -1,0 +1,52 @@
+@inject AppState AppState
+
+<header class="topbar">
+    <div class="page-title">
+        <h1>@Title</h1>
+        <span class="page-breadcrumb">/ neoadapter / @Breadcrumb</span>
+    </div>
+    <div class="topbar-actions">
+        @if (!string.IsNullOrEmpty(AppState.StatusMessage))
+        {
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); margin-right: 12px;">
+                @AppState.StatusMessage
+            </span>
+        }
+        <div class="icon-btn" title="Refresh" @onclick="Refresh">⟳</div>
+    </div>
+</header>
+
+@code {
+    private string Title => AppState.ActiveView switch
+    {
+        "dashboard" => "Overview",
+        "connectors" => "Connectors & Jobs",
+        "logs" => "Job Logs",
+        "admin" => "Administration",
+        _ => "Overview"
+    };
+
+    private string Breadcrumb => AppState.ActiveView switch
+    {
+        "dashboard" => "dashboard",
+        "connectors" => "integrations",
+        "logs" => "execution-logs",
+        "admin" => "admin",
+        _ => "dashboard"
+    };
+
+    protected override void OnInitialized()
+    {
+        AppState.OnStateChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        AppState.OnStateChanged -= StateHasChanged;
+    }
+
+    private void Refresh()
+    {
+        AppState.NotifyStateChanged();
+    }
+}
