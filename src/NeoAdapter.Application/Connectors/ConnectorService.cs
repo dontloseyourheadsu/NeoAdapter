@@ -27,17 +27,40 @@ public sealed class ConnectorService(
         public List<SqlTableConfig> Tables { get; set; } = new();
     }
 
-    public async Task<IReadOnlyList<ConnectorDto>> GetAllAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ConnectorDto>> GetAllAsync(Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
-        var connectors = await dbContext.Connectors
+        if (!roleRead && !roleAdmin)
+        {
+            throw new UnauthorizedAccessException("You do not have permission to view connectors.");
+        }
+
+        IQueryable<Connector> query = dbContext.Connectors.AsNoTracking();
+
+        if (roleAdmin || role == "Admin")
+        {
+            query = query.Where(c => c.OwnerOrganizationId == organizationId || c.OwnerOrganizationId == null);
+        }
+        else
+        {
+            query = query.Where(c => 
+                (c.OwnerOrganizationId == organizationId || c.OwnerOrganizationId == null) &&
+                (c.OwnerGroupId == null || c.OwnerGroupId == groupId || c.OwnerUserId == userId));
+        }
+
+        var connectors = await query
             .OrderBy(connector => connector.Name)
             .ToListAsync(cancellationToken);
 
         return connectors.Select(MapToDto).ToArray();
     }
 
-    public async Task<ConnectorDto> CreateAsync(CreateConnectorRequest request, CancellationToken cancellationToken)
+    public async Task<ConnectorDto> CreateAsync(CreateConnectorRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleCreate, bool roleAdmin, CancellationToken cancellationToken)
     {
+        if (!roleCreate && !roleAdmin)
+        {
+            throw new UnauthorizedAccessException("You do not have permission to create connectors.");
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         var trimmedName = request.Name.Trim();
@@ -59,6 +82,9 @@ public sealed class ConnectorService(
             Id = Guid.NewGuid(),
             Name = trimmedName,
             Type = MapToDomainType(request.Type),
+            OwnerUserId = userId,
+            OwnerGroupId = groupId,
+            OwnerOrganizationId = organizationId,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };

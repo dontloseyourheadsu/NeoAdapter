@@ -34,8 +34,9 @@ public sealed class IntegrationJobsController(IIntegrationJobService integration
     {
         var user = await GetCurrentUserAsync(cancellationToken);
         if (user == null) return Unauthorized();
+        if (!user.RoleRead && !user.RoleAdmin) return Forbid();
 
-        var jobs = await integrationJobService.GetAllAsync(user.Id, user.OrganizationId, user.GroupId, user.Role, cancellationToken);
+        var jobs = await integrationJobService.GetAllAsync(user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleRead, user.RoleAdmin, cancellationToken);
         return Ok(jobs);
     }
 
@@ -44,43 +45,57 @@ public sealed class IntegrationJobsController(IIntegrationJobService integration
         [FromBody] CreateIntegrationJobRequest request,
         CancellationToken cancellationToken)
     {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (!user.RoleCreate && !user.RoleAdmin) return Forbid();
+
         try
         {
-            var created = await integrationJobService.CreateAsync(request, cancellationToken);
+            var created = await integrationJobService.CreateAsync(request, user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleCreate, user.RoleAdmin, cancellationToken);
             return Ok(created);
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, ex.Message);
+        }
     }
 
     [HttpPost("{id:guid}/run")]
     public async Task<ActionResult<EnqueueIntegrationJobResponse>> RunNow(Guid id, CancellationToken cancellationToken)
     {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (!user.RoleEdit && !user.RoleAdmin) return Forbid();
+
         try
         {
-            var user = await GetCurrentUserAsync(cancellationToken);
-            if (user == null) return Unauthorized();
-
-            var result = await integrationJobService.EnqueueRunAsync(id, user.Username, cancellationToken);
+            var result = await integrationJobService.EnqueueRunAsync(id, user.Username, user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleEdit, user.RoleAdmin, cancellationToken);
             return Ok(result);
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, ex.Message);
+        }
     }
 
     [HttpGet("{id:guid}/runs")]
     public async Task<ActionResult<IReadOnlyList<IntegrationJobRunDto>>> GetRuns(Guid id, CancellationToken cancellationToken)
     {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (!user.RoleRead && !user.RoleAdmin) return Forbid();
+
         try
         {
-            var user = await GetCurrentUserAsync(cancellationToken);
-            if (user == null) return Unauthorized();
-
-            var runs = await integrationJobService.GetJobRunsAsync(id, user.Id, user.OrganizationId, user.GroupId, user.Role, cancellationToken);
+            var runs = await integrationJobService.GetJobRunsAsync(id, user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleRead, user.RoleAdmin, cancellationToken);
             return Ok(runs);
         }
         catch (KeyNotFoundException ex)
@@ -101,12 +116,13 @@ public sealed class IntegrationJobsController(IIntegrationJobService integration
         [FromQuery] int limit = 50,
         CancellationToken cancellationToken = default)
     {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (!user.RoleRead && !user.RoleAdmin) return Forbid();
+
         try
         {
-            var user = await GetCurrentUserAsync(cancellationToken);
-            if (user == null) return Unauthorized();
-
-            var result = await integrationJobService.GetJobLogsAsync(id, runId, cursor, limit, user.Id, user.OrganizationId, user.GroupId, user.Role, cancellationToken);
+            var result = await integrationJobService.GetJobLogsAsync(id, runId, cursor, limit, user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleRead, user.RoleAdmin, cancellationToken);
             return Ok(result);
         }
         catch (KeyNotFoundException ex)

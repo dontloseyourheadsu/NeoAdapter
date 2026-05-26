@@ -1,14 +1,18 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using NeoAdapter.Application.Connectors;
+using NeoAdapter.Application.Database.Contexts;
 using NeoAdapter.Contracts.Connectors;
+using NeoAdapter.Domain;
+using System.Security.Claims;
 
 namespace NeoAdapter.Api.Controllers;
 
 [Authorize]
 [ApiController]
 [Route("api/connectors")]
-public sealed class ConnectorsController(IConnectorService connectorService) : ControllerBase
+public sealed class ConnectorsController(IConnectorService connectorService, NeoAdapterDbContext dbContext) : ControllerBase
 {
     [AllowAnonymous]
     [HttpGet("ping")]
@@ -25,7 +29,11 @@ public sealed class ConnectorsController(IConnectorService connectorService) : C
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ConnectorDto>>> GetAll(CancellationToken cancellationToken)
     {
-        var response = await connectorService.GetAllAsync(cancellationToken);
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (!user.RoleRead && !user.RoleAdmin) return Forbid();
+
+        var response = await connectorService.GetAllAsync(user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleRead, user.RoleAdmin, cancellationToken);
         return Ok(response);
     }
 
@@ -34,14 +42,22 @@ public sealed class ConnectorsController(IConnectorService connectorService) : C
         [FromBody] CreateConnectorRequest request,
         CancellationToken cancellationToken)
     {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (!user.RoleCreate && !user.RoleAdmin) return Forbid();
+
         try
         {
-            var connector = await connectorService.CreateAsync(request, cancellationToken);
+            var connector = await connectorService.CreateAsync(request, user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleCreate, user.RoleAdmin, cancellationToken);
             return Ok(connector);
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, ex.Message);
         }
     }
 
@@ -50,6 +66,10 @@ public sealed class ConnectorsController(IConnectorService connectorService) : C
         [FromBody] TestConnectorRequest request,
         CancellationToken cancellationToken)
     {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (!user.RoleCreate && !user.RoleEdit && !user.RoleAdmin) return Forbid();
+
         try
         {
             var result = await connectorService.TestAsync(request, cancellationToken);
@@ -59,5 +79,19 @@ public sealed class ConnectorsController(IConnectorService connectorService) : C
         {
             return BadRequest(ex.Message);
         }
+    }
+
+    private async Task<UserAccount?> GetCurrentUserAsync(CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+            ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+        if (!Guid.TryParse(userIdClaim, out var userId))
+        {
+            return null;
+        }
+
+        return await dbContext.UserAccounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
     }
 }
