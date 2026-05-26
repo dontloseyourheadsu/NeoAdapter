@@ -71,7 +71,7 @@
                                     @run.StartedAtUtc.ToLocalTime().ToString("MM/dd HH:mm:ss")
                                 </div>
                                 <div class="job-item-meta">
-                                    Duration: @(run.CompletedAtUtc.HasValue ? (run.CompletedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "running")
+                                    Duration: @(run.FinishedAtUtc.HasValue ? (run.FinishedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "running")
                                 </div>
                             </div>
                             <span class="status-pill @runStatusClass">@run.Status?.ToUpper()</span>
@@ -119,7 +119,7 @@
                     {
                         var levelClass = line.LogLevel?.ToLower() ?? "info";
                         <div style="display: flex; gap: 12px; border-bottom: 1px solid rgba(166,109,255,0.03); padding: 4px 0;">
-                            <span style="color: var(--text-muted); flex-shrink: 0;">@line.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
+                            <span style="color: var(--text-muted); flex-shrink: 0;">@line.TimestampUtc.ToLocalTime().ToString("HH:mm:ss.fff")</span>
                             <span class="log-level @levelClass" style="font-weight: 700; flex-shrink: 0; width: 50px;">[@line.LogLevel]</span>
                             <span style="word-break: break-all; color: @(levelClass == "error" ? "var(--red)" : levelClass == "warn" ? "var(--amber)" : "var(--text-primary)")">
                                 @line.Message
@@ -139,7 +139,7 @@
     private Guid _selectedJobId = Guid.Empty;
     private IReadOnlyList<IntegrationJobRunDto> _runs = [];
     private IntegrationJobRunDto? _selectedRun;
-    private IReadOnlyList<LogLineDto> _logLines = [];
+    private IReadOnlyList<JobLogDto> _logLines = [];
     private string? _errorMessage;
 
     protected override async Task OnInitializedAsync()
@@ -216,35 +216,36 @@
         }
     }
 
-    private IReadOnlyList<LogLineDto> GenerateFallbackLogs(IntegrationJobRunDto run)
+    private IReadOnlyList<JobLogDto> GenerateFallbackLogs(IntegrationJobRunDto run)
     {
         var timestamp = run.StartedAtUtc;
         var status = run.Status ?? "Success";
         
-        var list = new List<LogLineDto>
+        var list = new List<JobLogDto>
         {
-            new LogLineDto(run.Id, "INFO", "Initiating job run container pipeline...", timestamp),
-            new LogLineDto(run.Id, "INFO", "Loading configuration parameters...", timestamp.AddMilliseconds(200)),
-            new LogLineDto(run.Id, "OK", "Successfully established connection with SQL Server.", timestamp.AddMilliseconds(550)),
-            new LogLineDto(run.Id, "INFO", "Beginning scanning schema constraints...", timestamp.AddMilliseconds(700)),
-            new LogLineDto(run.Id, "OK", "Schema constraints verified successfully.", timestamp.AddMilliseconds(900)),
-            new LogLineDto(run.Id, "INFO", "Transferring records via ADO.NET Bulk Copy...", timestamp.AddMilliseconds(1200))
+            new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp, "INFO", "Initiating job run container pipeline...", null),
+            new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddMilliseconds(200), "INFO", "Loading configuration parameters...", null),
+            new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddMilliseconds(550), "OK", "Successfully established connection with SQL Server.", null),
+            new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddMilliseconds(700), "INFO", "Beginning scanning schema constraints...", null),
+            new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddMilliseconds(900), "OK", "Schema constraints verified successfully.", null),
+            new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddMilliseconds(1200), "INFO", "Transferring records via ADO.NET Bulk Copy...", null)
         };
 
         if (status == "Success")
         {
-            list.Add(new LogLineDto(run.Id, "OK", "Transferred 14,890 records successfully.", timestamp.AddSeconds(2)));
-            list.Add(new LogLineDto(run.Id, "INFO", "Finalizing transaction and closing DB descriptors...", timestamp.AddSeconds(2).AddMilliseconds(200)));
-            list.Add(new LogLineDto(run.Id, "OK", "Pipeline execution complete. Exit code: 0", timestamp.AddSeconds(2).AddMilliseconds(400)));
+            list.Add(new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddSeconds(2), "OK", "Transferred 14,890 records successfully.", null));
+            list.Add(new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddSeconds(2).AddMilliseconds(200), "INFO", "Finalizing transaction and closing DB descriptors...", null));
+            list.Add(new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddSeconds(2).AddMilliseconds(400), "OK", "Pipeline execution complete. Exit code: 0", null));
         }
         else
         {
-            list.Add(new LogLineDto(run.Id, "WARN", "Slow network transfer rates detected. Speed: 154 KB/s", timestamp.AddSeconds(1)));
-            list.Add(new LogLineDto(run.Id, "ERROR", $"Fatal failure during SQL execution: {run.Message ?? "Primary Key Constraint violation."}", timestamp.AddSeconds(2)));
-            list.Add(new LogLineDto(run.Id, "INFO", "Rolling back transaction...", timestamp.AddSeconds(2).AddMilliseconds(100)));
-            list.Add(new LogLineDto(run.Id, "ERROR", "Pipeline execution aborted. Exit code: 1", timestamp.AddSeconds(2).AddMilliseconds(300)));
+            list.Add(new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddSeconds(1), "WARN", "Slow network transfer rates detected. Speed: 154 KB/s", null));
+            list.Add(new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddSeconds(2), "ERROR", $"Fatal failure during SQL execution: {run.Message ?? "Primary Key Constraint violation."}", null));
+            list.Add(new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddSeconds(2).AddMilliseconds(100), "INFO", "Rolling back transaction...", null));
+            list.Add(new JobLogDto(Guid.NewGuid(), run.IntegrationJobId, run.Id, timestamp.AddSeconds(2).AddMilliseconds(300), "ERROR", "Pipeline execution aborted. Exit code: 1", null));
         }
 
         return list;
     }
 }
+

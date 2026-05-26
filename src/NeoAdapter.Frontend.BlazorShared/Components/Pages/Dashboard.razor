@@ -133,7 +133,7 @@
                             </div>
                             <div class="job-item-info">
                                 <div class="job-item-name">@job.Name</div>
-                                <div class="job-item-meta">CRON: @job.CronSchedule</div>
+                                <div class="job-item-meta">CRON: @job.CronExpression</div>
                             </div>
                             <span class="status-pill @statusClass">@statusClass.ToUpper()</span>
                         </div>
@@ -244,9 +244,9 @@
             if (dbResponse != null)
             {
                 _totalJobsCount = dbResponse.TotalJobs;
-                _runningJobsCount = dbResponse.RunningJobs;
-                _queuedJobsCount = dbResponse.QueuedJobs;
-                _failedRunsCount = dbResponse.FailedRuns;
+                _runningJobsCount = dbResponse.Jobs.Count(j => j.Status == "Running");
+                _queuedJobsCount = dbResponse.Jobs.Count(j => j.Status == "Queued");
+                _failedRunsCount = dbResponse.FailedRunsLast24Hours;
             }
             else
             {

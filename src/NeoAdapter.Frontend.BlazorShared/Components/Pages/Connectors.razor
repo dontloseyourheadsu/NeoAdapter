@@ -97,7 +97,7 @@
                                 <div class="job-item-icon violet">⬡</div>
                                 <div class="job-item-info">
                                     <div class="job-item-name">@job.Name</div>
-                                    <div class="job-item-meta">CRON: @job.CronSchedule | Enabled: @job.IsEnabled</div>
+                                    <div class="job-item-meta">CRON: @job.CronExpression | Enabled: @job.IsEnabled</div>
                                 </div>
                                 <div style="display: flex; gap: 8px;" @onclick:stopPropagation="true">
                                     <button class="btn-ghost" style="padding: 2px 8px; font-size: 10px;" @onclick="() => RunJobAsync(job)">Run Now</button>
@@ -280,7 +280,7 @@
                                         <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border);">
                                             <div style="font-family: var(--font-mono); font-size: 11px;">
                                                 <div>@run.StartedAtUtc.ToLocalTime().ToString("g")</div>
-                                                <div style="color: var(--text-muted); font-size: 10px;">Duration: @(run.CompletedAtUtc.HasValue ? (run.CompletedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "-")</div>
+                                                <div style="color: var(--text-muted); font-size: 10px;">Duration: @(run.FinishedAtUtc.HasValue ? (run.FinishedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "-")</div>
                                             </div>
                                             <span class="@pillClass">@(run.Status ?? "Running")</span>
                                         </div>
@@ -417,7 +417,7 @@
             }
             else
             {
-                _errorMessage = $"Connection test failed: {response?.ErrorMessage ?? "No details available."}";
+                _errorMessage = $"Connection test failed: {response?.Message ?? "No details available."}";
             }
         }
         catch (Exception ex)
@@ -504,7 +504,7 @@
     {
         _selectedJob = job;
         _jobName = job.Name;
-        _jobCron = job.CronSchedule ?? "";
+        _jobCron = job.CronExpression ?? "";
         _jobEnabled = job.IsEnabled;
         _isEditingJob = false;
         _runs = [];
@@ -562,7 +562,7 @@
                 new[] { step },
                 _jobEnabled,
                 _jobCron,
-                OwnerUserId: AppState.CurrentUserId // optional
+                OwnerUserId: null
             );
 
             var result = await JobsApiClient.CreateAsync(req, CancellationToken.None);
