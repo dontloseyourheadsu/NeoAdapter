@@ -85,6 +85,9 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         TestConnectorCommand = new AsyncRelayCommand(() => TestConnectorAsync(_refreshCts.Token));
         CreateIntegrationJobCommand = new AsyncRelayCommand(() => CreateIntegrationJobAsync(_refreshCts.Token));
         RunIntegrationJobCommand = new AsyncRelayCommand<IntegrationJobDto>(RunIntegrationJobAsync);
+        LoadMoreLogsCommand = new AsyncRelayCommand(() => LoadLogEntriesAsync(SelectedLogRun, reset: false));
+        ViewJobLogsCommand = new RelayCommand<IntegrationJobDto>(ViewJobLogs);
+        ViewJobLogsFromSummaryCommand = new RelayCommand<DashboardJobSummaryItem>(ViewJobLogsFromSummary);
     }
 
     public ObservableCollection<DashboardJobSummaryItem> DashboardJobs { get; } = [];
@@ -113,8 +116,32 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public IAsyncRelayCommand<IntegrationJobDto> RunIntegrationJobCommand { get; }
 
+    public IAsyncRelayCommand LoadMoreLogsCommand { get; }
+
+    public IRelayCommand<IntegrationJobDto> ViewJobLogsCommand { get; }
+
+    public IRelayCommand<DashboardJobSummaryItem> ViewJobLogsFromSummaryCommand { get; }
+
     [ObservableProperty]
     private int _selectedTabIndex;
+
+    [ObservableProperty]
+    private IntegrationJobDto? _selectedLogJob;
+
+    [ObservableProperty]
+    private IntegrationJobRunDto? _selectedLogRun;
+
+    [ObservableProperty]
+    private bool _logHasMore;
+
+    [ObservableProperty]
+    private bool _logIsLoading;
+
+    public ObservableCollection<IntegrationJobRunDto> LogRuns { get; } = [];
+
+    public ObservableCollection<JobLogDto> LogEntries { get; } = [];
+
+    private DateTimeOffset? _logNextCursor;
 
     [ObservableProperty]
     private int _totalJobs;
@@ -667,5 +694,115 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         }
 
         return IsAuthenticated;
+    }
+
+    private void ViewJobLogs(IntegrationJobDto? job)
+    {
+        if (job is null) return;
+        SelectedLogJob = IntegrationJobs.FirstOrDefault(j => j.Id == job.Id) ?? job;
+        SelectedTabIndex = 2;
+    }
+
+    private void ViewJobLogsFromSummary(DashboardJobSummaryItem? summary)
+    {
+        if (summary is null) return;
+        var job = IntegrationJobs.FirstOrDefault(j => j.Id == summary.Id);
+        if (job is not null)
+        {
+            ViewJobLogs(job);
+        }
+    }
+
+    partial void OnSelectedTabIndexChanged(int value)
+    {
+        if (value == 2 && SelectedLogJob is null && IntegrationJobs.Count > 0)
+        {
+            SelectedLogJob = IntegrationJobs[0];
+        }
+    }
+
+    partial void OnSelectedLogJobChanged(IntegrationJobDto? value)
+    {
+        _ = LoadLogRunsAsync(value);
+    }
+
+    partial void OnSelectedLogRunChanged(IntegrationJobRunDto? value)
+    {
+        _ = LoadLogEntriesAsync(value, reset: true);
+    }
+
+    private async Task LoadLogRunsAsync(IntegrationJobDto? job)
+    {
+        LogRuns.Clear();
+        LogEntries.Clear();
+        SelectedLogRun = null;
+        _logNextCursor = null;
+        LogHasMore = false;
+
+        if (job is null) return;
+
+        LogIsLoading = true;
+        try
+        {
+            var runs = await _integrationJobsApiClient.GetRunsAsync(job.Id, _refreshCts.Token);
+            ReplaceAll(LogRuns, runs);
+            if (LogRuns.Count > 0)
+            {
+                SelectedLogRun = LogRuns[0];
+            }
+            else
+            {
+                _ = LoadLogEntriesAsync(null, reset: true);
+            }
+        }
+        catch
+        {
+            ErrorMessage = "Failed to load execution runs.";
+        }
+        finally
+        {
+            LogIsLoading = false;
+        }
+    }
+
+    private async Task LoadLogEntriesAsync(IntegrationJobRunDto? run, bool reset)
+    {
+        if (SelectedLogJob is null) return;
+
+        LogIsLoading = true;
+        try
+        {
+            if (reset)
+            {
+                LogEntries.Clear();
+                _logNextCursor = null;
+                LogHasMore = false;
+            }
+
+            var response = await _integrationJobsApiClient.GetLogsAsync(
+                SelectedLogJob.Id,
+                run?.Id,
+                _logNextCursor,
+                50,
+                _refreshCts.Token);
+
+            if (response is not null)
+            {
+                foreach (var log in response.Logs)
+                {
+                    LogEntries.Add(log);
+                }
+                _logNextCursor = response.NextCursor;
+                LogHasMore = response.NextCursor is not null;
+            }
+        }
+        catch
+        {
+            ErrorMessage = "Failed to load log entries.";
+        }
+        finally
+        {
+            LogIsLoading = false;
+        }
     }
 }

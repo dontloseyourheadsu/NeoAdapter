@@ -37,4 +37,40 @@ public sealed class IntegrationJobsApiClient(HttpClient httpClient)
 
         return await response.Content.ReadFromJsonAsync(NeoAdapterJsonTypeInfo.For<EnqueueIntegrationJobResponse>(), cancellationToken);
     }
+
+    public async Task<IReadOnlyList<IntegrationJobRunDto>> GetRunsAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await httpClient.GetFromJsonAsync($"api/integration-jobs/{jobId}/runs", NeoAdapterJsonTypeInfo.For<IReadOnlyList<IntegrationJobRunDto>>(), cancellationToken);
+            return response ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<JobLogsResponse?> GetLogsAsync(Guid jobId, Guid? runId, DateTimeOffset? cursor, int limit, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var url = $"api/integration-jobs/{jobId}/logs?limit={limit}";
+            if (runId.HasValue)
+            {
+                url += $"&runId={runId.Value}";
+            }
+            if (cursor.HasValue)
+            {
+                url += $"&cursor={Uri.EscapeDataString(cursor.Value.ToString("O"))}";
+            }
+
+            var response = await httpClient.GetFromJsonAsync(url, NeoAdapterJsonTypeInfo.For<JobLogsResponse>(), cancellationToken);
+            return response;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

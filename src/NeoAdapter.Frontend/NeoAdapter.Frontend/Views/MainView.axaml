@@ -57,6 +57,9 @@
             <TabItem Header="Connectors and Jobs">
                 <views:IntegrationsView DataContext="{Binding}" />
             </TabItem>
+            <TabItem Header="Job Logs">
+                <views:LogsView DataContext="{Binding}" />
+            </TabItem>
         </TabControl>
 
         <!-- keeps design-time layout stable when authenticated header is hidden -->
