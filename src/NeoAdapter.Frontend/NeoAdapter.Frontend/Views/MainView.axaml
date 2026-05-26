@@ -60,6 +60,9 @@
             <TabItem Header="Job Logs">
                 <views:LogsView DataContext="{Binding}" />
             </TabItem>
+            <TabItem Header="Administration" IsVisible="{Binding IsAdmin}">
+                <views:UserAdminView DataContext="{Binding}" />
+            </TabItem>
         </TabControl>
 
         <!-- keeps design-time layout stable when authenticated header is hidden -->
