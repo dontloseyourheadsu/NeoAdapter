@@ -1,0 +1,624 @@
+@using System.Threading
+@using NeoAdapter.Contracts.Connectors
+@using NeoAdapter.Contracts.IntegrationJobs
+@using NeoAdapter.Frontend.BlazorShared.Services
+@inject AppState AppState
+@inject ConnectorApiClient ConnectorApiClient
+@inject IntegrationJobsApiClient JobsApiClient
+
+<div style="padding: 28px 32px; display: flex; flex-direction: column; gap: 24px;">
+    
+    <!-- Title / Breadcrumb -->
+    <div>
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--violet-300); letter-spacing: 0.1em; text-transform: uppercase;">Nexus Workspace</div>
+        <h1 style="font-size: 28px; font-weight: 800; margin: 4px 0 0; background: linear-gradient(135deg, white, var(--text-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Connectors &amp; Jobs</h1>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div style="display: flex; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+        <button class="btn-ghost @(_activeTab == "connectors" ? "active" : "")" style="padding: 8px 16px; font-family: var(--font-display); font-size: 14px; font-weight: 600;" @onclick='() => _activeTab = "connectors"'>
+            ◫ Connectors
+        </button>
+        <button class="btn-ghost @(_activeTab == "jobs" ? "active" : "")" style="padding: 8px 16px; font-family: var(--font-display); font-size: 14px; font-weight: 600;" @onclick='() => _activeTab = "jobs"'>
+            ⬡ Integration Jobs
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert-danger">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert-success">@_successMessage</div>
+    }
+
+    <!-- Tab Contents -->
+    <div class="content-grid">
+        
+        <!-- Left Panel: Lists -->
+        <div class="panel">
+            @if (_activeTab == "connectors")
+            {
+                <div class="panel-header">
+                    <div class="panel-title">CONNECTOR LIST</div>
+                    <button class="btn-primary" @onclick="PrepareNewConnector">
+                        <span>+</span> New Connector
+                    </button>
+                </div>
+                <div class="job-list">
+                    @if (_connectors.Count == 0)
+                    {
+                        <div style="padding: 32px; text-align: center; color: var(--text-muted); font-size: 13px;">
+                            No connectors configured. Add one to get started.
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var connector in _connectors)
+                        {
+                            var isSelected = _selectedConnector?.Id == connector.Id;
+                            var typeClass = connector.Type == ConnectorType.SqlServer ? "blue" : connector.Type == ConnectorType.Postgres ? "violet" : "green";
+                            <div class="job-item @(isSelected ? "active" : "")" @onclick="() => SelectConnector(connector)" style="cursor: pointer;">
+                                <div class="job-item-icon @typeClass">
+                                    @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : "📄")
+                                </div>
+                                <div class="job-item-info">
+                                    <div class="job-item-name">@connector.Name</div>
+                                    <div class="job-item-meta">@connector.Type.ToString() · Created @connector.CreatedAtUtc.ToString("yyyy-MM-dd")</div>
+                                </div>
+                                <span class="status-pill idle">CONNECTED</span>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="panel-header">
+                    <div class="panel-title">INTEGRATION JOBS</div>
+                    <button class="btn-primary" @onclick="PrepareNewJob">
+                        <span>+</span> Create Job
+                    </button>
+                </div>
+                <div class="job-list">
+                    @if (_jobs.Count == 0)
+                    {
+                        <div style="padding: 32px; text-align: center; color: var(--text-muted); font-size: 13px;">
+                            No integration jobs configured. Create one to begin migrating data.
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var job in _jobs)
+                        {
+                            var isSelected = _selectedJob?.Id == job.Id;
+                            <div class="job-item @(isSelected ? "active" : "")" @onclick="() => SelectJob(job)" style="cursor: pointer;">
+                                <div class="job-item-icon violet">⬡</div>
+                                <div class="job-item-info">
+                                    <div class="job-item-name">@job.Name</div>
+                                    <div class="job-item-meta">CRON: @job.CronSchedule | Enabled: @job.IsEnabled</div>
+                                </div>
+                                <div style="display: flex; gap: 8px;" @onclick:stopPropagation="true">
+                                    <button class="btn-ghost" style="padding: 2px 8px; font-size: 10px;" @onclick="() => RunJobAsync(job)">Run Now</button>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Right Panel: Editor / Details -->
+        <div class="panel" style="padding: 24px;">
+            @if (_activeTab == "connectors")
+            {
+                if (_isEditingConnector || _selectedConnector != null)
+                {
+                    <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 16px; font-weight: 700; color: var(--violet-300);">
+                        @(_isEditingConnector ? "CREATE NEW CONNECTOR" : "CONNECTOR DETAILS")
+                    </h3>
+
+                    <div class="form-group">
+                        <label class="form-label">Connector Name</label>
+                        <input type="text" class="form-input" @bind="_connName" readonly="@(!_isEditingConnector)" placeholder="e.g. Production SqlServer" />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Type</label>
+                        @if (_isEditingConnector)
+                        {
+                            <select class="form-input" @bind="_connType">
+                                <option value="@ConnectorType.SqlServer">SQL Server (SqlServer)</option>
+                                <option value="@ConnectorType.Postgres">PostgreSQL (Postgres)</option>
+                                <option value="@ConnectorType.Csv">CSV File (Csv)</option>
+                            </select>
+                        }
+                        else
+                        {
+                            <input type="text" class="form-input" value="@_selectedConnector?.Type.ToString()" readonly />
+                        }
+                    </div>
+
+                    @if (_connType == ConnectorType.SqlServer || _connType == ConnectorType.Postgres)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Host</label>
+                            <input type="text" class="form-input" @bind="_sqlHost" readonly="@(!_isEditingConnector)" placeholder="localhost or domain" />
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">Port</label>
+                                <input type="number" class="form-input" @bind="_sqlPort" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Database Name</label>
+                                <input type="text" class="form-input" @bind="_sqlDatabase" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-input" @bind="_sqlUsername" readonly="@(!_isEditingConnector)" />
+                        </div>
+                        @if (_isEditingConnector)
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Password</label>
+                                <input type="password" class="form-input" @bind="_sqlPassword" />
+                            </div>
+                        }
+                        <div class="form-group">
+                            <label class="form-checkbox">
+                                <input type="checkbox" @bind="_sqlTrustCert" disabled="@(!_isEditingConnector)" />
+                                Trust Server Certificate
+                            </label>
+                        </div>
+                    }
+                    else if (_connType == ConnectorType.Csv)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">File Path</label>
+                            <input type="text" class="form-input" @bind="_csvPath" readonly="@(!_isEditingConnector)" placeholder="/path/to/file.csv" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Delimiter</label>
+                            <input type="text" class="form-input" @bind="_csvDelimiter" readonly="@(!_isEditingConnector)" />
+                        </div>
+                    }
+
+                    @if (_isEditingConnector)
+                    {
+                        <div style="display: flex; gap: 12px; margin-top: 24px;">
+                            <button class="btn-ghost" @onclick="TestConnectionAsync" disabled="@_isBusy">Test Connection</button>
+                            <button class="btn-primary" @onclick="SaveConnectorAsync" disabled="@_isBusy" style="margin-left: auto;">Save Connector</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="margin-top: 24px; color: var(--text-muted); font-size: 11.5px; font-family: var(--font-mono);">
+                            Connector ID: @_selectedConnector?.Id
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 250px; color: var(--text-muted);">
+                        <span>◫</span>
+                        <div style="font-size: 13px; margin-top: 8px;">Select a connector from the list or create a new one.</div>
+                    </div>
+                }
+            }
+            else
+            {
+                if (_isEditingJob || _selectedJob != null)
+                {
+                    <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 16px; font-weight: 700; color: var(--violet-300);">
+                        @(_isEditingJob ? "CREATE INTEGRATION JOB" : "JOB RUN DETAILS & HISTORY")
+                    </h3>
+
+                    <div class="form-group">
+                        <label class="form-label">Job Name</label>
+                        <input type="text" class="form-input" @bind="_jobName" readonly="@(!_isEditingJob)" placeholder="e.g. Sales Sync Postgres to Sql" />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Cron Schedule</label>
+                        <input type="text" class="form-input" @bind="_jobCron" readonly="@(!_isEditingJob)" placeholder="e.g. */15 * * * *" />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-checkbox">
+                            <input type="checkbox" @bind="_jobEnabled" disabled="@(!_isEditingJob)" />
+                            IsEnabled
+                        </label>
+                    </div>
+
+                    @if (_isEditingJob)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Source Connector</label>
+                            <select class="form-input" @bind="_jobSourceId">
+                                <option value="">-- Select Source --</option>
+                                @foreach (var c in _connectors)
+                                {
+                                    <option value="@c.Id">@c.Name (@c.Type)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Destination Connector</label>
+                            <select class="form-input" @bind="_jobDestinationId">
+                                <option value="">-- Select Destination --</option>
+                                @foreach (var c in _connectors)
+                                {
+                                    <option value="@c.Id">@c.Name (@c.Type)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div style="display: flex; gap: 12px; margin-top: 24px;">
+                            <button class="btn-ghost" @onclick="() => _isEditingJob = false">Cancel</button>
+                            <button class="btn-primary" @onclick="SaveJobAsync" disabled="@_isBusy" style="margin-left: auto;">Save Workflow</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- Runs History -->
+                        <div style="margin-top: 20px;">
+                            <div class="section-title" style="margin-bottom: 8px;">Run Execution History</div>
+                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface);">
+                                @if (_runs == null || _runs.Count == 0)
+                                {
+                                    <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">No runs recorded.</div>
+                                }
+                                else
+                                {
+                                    @foreach (var run in _runs)
+                                    {
+                                        var pillClass = run.Status == "Success" ? "status-pill running" : "status-pill failed";
+                                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border);">
+                                            <div style="font-family: var(--font-mono); font-size: 11px;">
+                                                <div>@run.StartedAtUtc.ToLocalTime().ToString("g")</div>
+                                                <div style="color: var(--text-muted); font-size: 10px;">Duration: @(run.CompletedAtUtc.HasValue ? (run.CompletedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "-")</div>
+                                            </div>
+                                            <span class="@pillClass">@(run.Status ?? "Running")</span>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 12px; margin-top: 24px;">
+                            <button class="btn-primary" @onclick="() => RunJobAsync(_selectedJob!)" disabled="@_isBusy">Run Now</button>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 250px; color: var(--text-muted);">
+                        <span>⬡</span>
+                        <div style="font-size: 13px; margin-top: 8px;">Select a workflow job to execute or configure a new integration.</div>
+                    </div>
+                }
+            }
+        </div>
+        
+    </div>
+    
+</div>
+
+@code {
+    private string _activeTab = "connectors";
+    private IReadOnlyList<ConnectorDto> _connectors = [];
+    private IReadOnlyList<IntegrationJobDto> _jobs = [];
+    private IReadOnlyList<IntegrationJobRunDto> _runs = [];
+
+    private ConnectorDto? _selectedConnector;
+    private IntegrationJobDto? _selectedJob;
+
+    private bool _isEditingConnector = false;
+    private bool _isEditingJob = false;
+    private bool _isBusy = false;
+
+    private string? _errorMessage;
+    private string? _successMessage;
+
+    // Form bindings (Connector)
+    private string _connName = "";
+    private ConnectorType _connType = ConnectorType.SqlServer;
+    private string _sqlHost = "localhost";
+    private int _sqlPort = 5432;
+    private string _sqlDatabase = "";
+    private string _sqlUsername = "";
+    private string _sqlPassword = "";
+    private bool _sqlTrustCert = true;
+    private string _csvPath = "";
+    private string _csvDelimiter = ",";
+
+    // Form bindings (Job)
+    private string _jobName = "";
+    private string _jobCron = "0 * * * *";
+    private bool _jobEnabled = true;
+    private string _jobSourceId = "";
+    private string _jobDestinationId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadListsAsync();
+    }
+
+    private async Task LoadListsAsync()
+    {
+        _errorMessage = null;
+        try
+        {
+            _connectors = await ConnectorApiClient.GetAllAsync(CancellationToken.None);
+            _jobs = await JobsApiClient.GetAllAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load configuration: {ex.Message}";
+        }
+    }
+
+    private void PrepareNewConnector()
+    {
+        _selectedConnector = null;
+        _connName = "";
+        _connType = ConnectorType.Postgres;
+        _sqlHost = "127.0.0.1";
+        _sqlPort = 5432;
+        _sqlDatabase = "neoadapter_dev";
+        _sqlUsername = "postgres";
+        _sqlPassword = "";
+        _sqlTrustCert = true;
+        _csvPath = "";
+        _csvDelimiter = ",";
+        _isEditingConnector = true;
+        ClearBanners();
+    }
+
+    private void SelectConnector(ConnectorDto connector)
+    {
+        _selectedConnector = connector;
+        _connName = connector.Name;
+        _connType = connector.Type;
+        _isEditingConnector = false;
+
+        if (connector.Sql != null)
+        {
+            _sqlHost = connector.Sql.Host;
+            _sqlPort = connector.Sql.Port;
+            _sqlDatabase = connector.Sql.Database;
+            _sqlUsername = connector.Sql.Username;
+            _sqlTrustCert = connector.Sql.TrustServerCertificate;
+        }
+        else if (connector.Csv != null)
+        {
+            _csvPath = connector.Csv.Path;
+            _csvDelimiter = connector.Csv.Delimiter;
+        }
+
+        ClearBanners();
+    }
+
+    private async Task TestConnectionAsync()
+    {
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var req = CreateTestConnectorRequest();
+            var response = await ConnectorApiClient.TestAsync(req, CancellationToken.None);
+            if (response != null && response.IsSuccess)
+            {
+                _successMessage = "Connection test succeeded!";
+            }
+            else
+            {
+                _errorMessage = $"Connection test failed: {response?.ErrorMessage ?? "No details available."}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Connection test error: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SaveConnectorAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_connName))
+        {
+            _errorMessage = "Connector name is required.";
+            return;
+        }
+
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var req = new CreateConnectorRequest(
+                _connName,
+                _connType,
+                (_connType == ConnectorType.SqlServer || _connType == ConnectorType.Postgres)
+                    ? new SqlConnectorSettingsInputDto(_sqlHost, _sqlPort, _sqlDatabase, _sqlUsername, _sqlPassword, _sqlTrustCert, null)
+                    : null,
+                _connType == ConnectorType.Csv ? new CsvConnectorSettingsDto(_csvPath, _csvDelimiter) : null,
+                null
+            );
+
+            var result = await ConnectorApiClient.CreateAsync(req, CancellationToken.None);
+            if (result != null)
+            {
+                _successMessage = $"Connector '{result.Name}' created successfully.";
+                _isEditingConnector = false;
+                await LoadListsAsync();
+                _selectedConnector = _connectors.FirstOrDefault(c => c.Id == result.Id);
+            }
+            else
+            {
+                _errorMessage = "Failed to save connector.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Save error: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private TestConnectorRequest CreateTestConnectorRequest()
+    {
+        return new TestConnectorRequest(
+            _connType,
+            (_connType == ConnectorType.SqlServer || _connType == ConnectorType.Postgres)
+                ? new SqlConnectorSettingsInputDto(_sqlHost, _sqlPort, _sqlDatabase, _sqlUsername, _sqlPassword, _sqlTrustCert, null)
+                : null,
+            _connType == ConnectorType.Csv ? new CsvConnectorSettingsDto(_csvPath, _csvDelimiter) : null,
+            null
+        );
+    }
+
+    // Job Methods
+    private void PrepareNewJob()
+    {
+        _selectedJob = null;
+        _jobName = "";
+        _jobCron = "*/15 * * * *";
+        _jobEnabled = true;
+        _jobSourceId = "";
+        _jobDestinationId = "";
+        _isEditingJob = true;
+        ClearBanners();
+    }
+
+    private async Task SelectJob(IntegrationJobDto job)
+    {
+        _selectedJob = job;
+        _jobName = job.Name;
+        _jobCron = job.CronSchedule ?? "";
+        _jobEnabled = job.IsEnabled;
+        _isEditingJob = false;
+        _runs = [];
+        ClearBanners();
+
+        try
+        {
+            _runs = await JobsApiClient.GetRunsAsync(job.Id, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load run history: {ex.Message}";
+        }
+    }
+
+    private async Task SaveJobAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_jobName))
+        {
+            _errorMessage = "Job name is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_jobSourceId) || string.IsNullOrWhiteSpace(_jobDestinationId))
+        {
+            _errorMessage = "Both source and destination connectors must be specified.";
+            return;
+        }
+
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var src = _connectors.FirstOrDefault(c => c.Id == Guid.Parse(_jobSourceId));
+            var dest = _connectors.FirstOrDefault(c => c.Id == Guid.Parse(_jobDestinationId));
+
+            if (src == null || dest == null)
+            {
+                _errorMessage = "Source or destination connector could not be found.";
+                return;
+            }
+
+            var step = new CreateIntegrationJobStepRequest(
+                0,
+                src.Type,
+                src.Sql != null ? new SqlConnectorSettingsInputDto(src.Sql.Host, src.Sql.Port, src.Sql.Database, src.Sql.Username, "", src.Sql.TrustServerCertificate, src.Sql.ConfigJson) : null,
+                src.Csv,
+                dest.Type,
+                dest.Sql != null ? new SqlConnectorSettingsInputDto(dest.Sql.Host, dest.Sql.Port, dest.Sql.Database, dest.Sql.Username, "", dest.Sql.TrustServerCertificate, dest.Sql.ConfigJson) : null,
+                dest.Csv
+            );
+
+            var req = new CreateIntegrationJobRequest(
+                _jobName,
+                new[] { step },
+                _jobEnabled,
+                _jobCron,
+                OwnerUserId: AppState.CurrentUserId // optional
+            );
+
+            var result = await JobsApiClient.CreateAsync(req, CancellationToken.None);
+            if (result != null)
+            {
+                _successMessage = $"Job '{result.Name}' created successfully.";
+                _isEditingJob = false;
+                await LoadListsAsync();
+                await SelectJob(_jobs.First(j => j.Id == result.Id));
+            }
+            else
+            {
+                _errorMessage = "Failed to create integration job.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Job save error: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task RunJobAsync(IntegrationJobDto job)
+    {
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var result = await JobsApiClient.RunNowAsync(job.Id, CancellationToken.None);
+            if (result != null)
+            {
+                _successMessage = $"Job run enqueued successfully. Hangfire ID: {result.HangfireJobId}";
+                // Reload runs history
+                _runs = await JobsApiClient.GetRunsAsync(job.Id, CancellationToken.None);
+            }
+            else
+            {
+                _errorMessage = "Failed to enqueue job run.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Execution trigger error: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void ClearBanners()
+    {
+        _errorMessage = null;
+        _successMessage = null;
+    }
+}

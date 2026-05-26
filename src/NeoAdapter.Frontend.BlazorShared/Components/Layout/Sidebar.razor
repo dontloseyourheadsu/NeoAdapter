@@ -1,0 +1,78 @@
+@inject AppState AppState
+
+<aside class="sidebar">
+    <div class="logo">
+        <div class="logo-mark">
+            <div class="logo-icon">⬡</div>
+            <div>
+                <div class="logo-text">NEOADAPTER</div>
+                <div class="logo-sub">Job Scheduler v2.5</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="nav-group">
+        <div class="nav-label">Core</div>
+        <button class="nav-item @(AppState.ActiveView == "dashboard" ? "active" : "")" @onclick='() => SetView("dashboard")'>
+            <span>⬡</span> Dashboard
+            @if (AppState.ActiveView == "dashboard")
+            {
+                <span class="nav-dot"></span>
+            }
+        </button>
+        <button class="nav-item @(AppState.ActiveView == "connectors" ? "active" : "")" @onclick='() => SetView("connectors")'>
+            <span>◫</span> Connectors &amp; Jobs
+        </button>
+        <button class="nav-item @(AppState.ActiveView == "logs" ? "active" : "")" @onclick='() => SetView("logs")'>
+            <span>⟳</span> Job Logs
+        </button>
+    </div>
+
+    @if (AppState.IsAdmin)
+    {
+        <div class="nav-group">
+            <div class="nav-label">System</div>
+            <button class="nav-item @(AppState.ActiveView == "admin" ? "active" : "")" @onclick='() => SetView("admin")'>
+                <span>⚙</span> Administration
+            </button>
+        </div>
+    }
+
+    <div class="sidebar-footer">
+        <div class="user-card" @onclick="Logout">
+            <div class="avatar">@UserInitials</div>
+            <div class="user-info">
+                <div class="user-name">@AppState.CurrentUsername</div>
+                <div class="user-role">@(AppState.IsAdmin ? "Admin" : "User") · NeoAdapter</div>
+            </div>
+            <span style="color: var(--text-muted); font-size: 14px;" title="Logout">⎋</span>
+        </div>
+    </div>
+</aside>
+
+@code {
+    private string UserInitials => string.IsNullOrWhiteSpace(AppState.CurrentUsername) 
+        ? "UA" 
+        : AppState.CurrentUsername.Substring(0, Math.Min(2, AppState.CurrentUsername.Length)).ToUpper();
+
+    protected override void OnInitialized()
+    {
+        AppState.OnStateChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        AppState.OnStateChanged -= StateHasChanged;
+    }
+
+    private void SetView(string view)
+    {
+        AppState.ActiveView = view;
+        AppState.NotifyStateChanged();
+    }
+
+    private async Task Logout()
+    {
+        await AppState.LogoutAsync();
+    }
+}

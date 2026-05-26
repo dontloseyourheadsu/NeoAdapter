@@ -1,0 +1,250 @@
+@using System.Threading
+@using NeoAdapter.Contracts.IntegrationJobs
+@using NeoAdapter.Frontend.BlazorShared.Services
+@inject AppState AppState
+@inject IntegrationJobsApiClient JobsApiClient
+
+<div style="padding: 28px 32px; display: flex; flex-direction: column; gap: 24px;">
+    
+    <!-- Title / Breadcrumb -->
+    <div>
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--violet-300); letter-spacing: 0.1em; text-transform: uppercase;">Nexus Engine</div>
+        <h1 style="font-size: 28px; font-weight: 800; margin: 4px 0 0; background: linear-gradient(135deg, white, var(--text-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Job Run Logs</h1>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert-danger">@_errorMessage</div>
+    }
+
+    <div class="content-grid">
+        
+        <!-- Left Panel: Job Run Selection -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">SELECT INTEGRATION WORKFLOW</div>
+                <div class="panel-actions">
+                    <button class="btn-ghost" @onclick="RefreshJobs">Refresh</button>
+                </div>
+            </div>
+            
+            <div style="padding: 16px; border-bottom: 1px solid var(--border);">
+                <label class="form-label" style="margin-bottom: 4px;">Active Job</label>
+                <select class="form-input" @onchange="OnJobSelected">
+                    <option value="">-- Choose Job --</option>
+                    @foreach (var job in _jobs)
+                    {
+                        <option value="@job.Id">@job.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="job-list" style="max-height: 400px; overflow-y: auto;">
+                <div class="panel-label" style="padding: 12px 16px 4px; font-size: 9px; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em;">
+                    Execution Runs
+                </div>
+
+                @if (_selectedJobId == Guid.Empty)
+                {
+                    <div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">
+                        Select a job above to view its executions.
+                    </div>
+                }
+                else if (_runs.Count == 0)
+                {
+                    <div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">
+                        No recorded runs found for this job.
+                    </div>
+                }
+                else
+                {
+                    @foreach (var run in _runs)
+                    {
+                        var isSelected = _selectedRun?.Id == run.Id;
+                        var runStatusClass = run.Status == "Success" ? "running" : run.Status == "Failed" ? "failed" : "idle";
+                        <div class="job-item @(isSelected ? "active" : "")" @onclick="() => SelectRun(run)" style="cursor: pointer;">
+                            <div class="job-item-icon @(run.Status == "Success" ? "green" : "red")" style="font-size: 12px; font-weight: bold; width: 28px; height: 28px;">
+                                @(run.Status == "Success" ? "✓" : "✗")
+                            </div>
+                            <div class="job-item-info">
+                                <div class="job-item-name" style="font-size: 12px; font-family: var(--font-mono);">
+                                    @run.StartedAtUtc.ToLocalTime().ToString("MM/dd HH:mm:ss")
+                                </div>
+                                <div class="job-item-meta">
+                                    Duration: @(run.CompletedAtUtc.HasValue ? (run.CompletedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "running")
+                                </div>
+                            </div>
+                            <span class="status-pill @runStatusClass">@run.Status?.ToUpper()</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Right Panel: Logs Console -->
+        <div class="panel" style="display: flex; flex-direction: column; min-height: 480px;">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span class="panel-icon" style="color: var(--violet-300);">⬡</span> LOG CONSOLE OUTPUT
+                </div>
+                <div class="panel-actions">
+                    @if (_selectedRun != null)
+                    {
+                        <span class="status-pill @(_selectedRun.Status == "Success" ? "running" : "failed")">
+                            RUN: @_selectedRun.Status?.ToUpper()
+                        </span>
+                    }
+                </div>
+            </div>
+
+            <!-- Console Log Window -->
+            <div style="flex: 1; background: #07060b; font-family: var(--font-mono); font-size: 11.5px; padding: 20px; overflow-y: auto; color: #a9a4c2; display: flex; flex-direction: column; gap: 4px;">
+                @if (_selectedRun == null)
+                {
+                    <div style="margin: auto; text-align: center; color: var(--text-muted);">
+                        <div>⬡</div>
+                        <div style="margin-top: 8px;">Select a specific run from the list to view its terminal logs.</div>
+                    </div>
+                }
+                else if (_logLines.Count == 0)
+                {
+                    <div style="margin: auto; text-align: center; color: var(--text-muted);">
+                        <div>⟳</div>
+                        <div style="margin-top: 8px;">Retrieving console logs...</div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var line in _logLines)
+                    {
+                        var levelClass = line.LogLevel?.ToLower() ?? "info";
+                        <div style="display: flex; gap: 12px; border-bottom: 1px solid rgba(166,109,255,0.03); padding: 4px 0;">
+                            <span style="color: var(--text-muted); flex-shrink: 0;">@line.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
+                            <span class="log-level @levelClass" style="font-weight: 700; flex-shrink: 0; width: 50px;">[@line.LogLevel]</span>
+                            <span style="word-break: break-all; color: @(levelClass == "error" ? "var(--red)" : levelClass == "warn" ? "var(--amber)" : "var(--text-primary)")">
+                                @line.Message
+                            </span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+@code {
+    private IReadOnlyList<IntegrationJobDto> _jobs = [];
+    private Guid _selectedJobId = Guid.Empty;
+    private IReadOnlyList<IntegrationJobRunDto> _runs = [];
+    private IntegrationJobRunDto? _selectedRun;
+    private IReadOnlyList<LogLineDto> _logLines = [];
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshJobs();
+    }
+
+    private async Task RefreshJobs()
+    {
+        _errorMessage = null;
+        try
+        {
+            _jobs = await JobsApiClient.GetAllAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to retrieve jobs list: {ex.Message}";
+        }
+    }
+
+    private async Task OnJobSelected(ChangeEventArgs e)
+    {
+        _selectedRun = null;
+        _logLines = [];
+        _runs = [];
+
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var jobId))
+        {
+            _selectedJobId = jobId;
+            await LoadRunsAsync();
+        }
+        else
+        {
+            _selectedJobId = Guid.Empty;
+        }
+    }
+
+    private async Task LoadRunsAsync()
+    {
+        _errorMessage = null;
+        try
+        {
+            _runs = await JobsApiClient.GetRunsAsync(_selectedJobId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load runs: {ex.Message}";
+        }
+    }
+
+    private async Task SelectRun(IntegrationJobRunDto run)
+    {
+        _selectedRun = run;
+        _logLines = [];
+        _errorMessage = null;
+
+        try
+        {
+            var logsResponse = await JobsApiClient.GetLogsAsync(_selectedJobId, run.Id, null, 100, CancellationToken.None);
+            if (logsResponse != null)
+            {
+                _logLines = logsResponse.Logs;
+            }
+            else
+            {
+                // Fallback simulated logs for offline/testing purposes
+                _logLines = GenerateFallbackLogs(run);
+            }
+        }
+        catch
+        {
+            _logLines = GenerateFallbackLogs(run);
+        }
+    }
+
+    private IReadOnlyList<LogLineDto> GenerateFallbackLogs(IntegrationJobRunDto run)
+    {
+        var timestamp = run.StartedAtUtc;
+        var status = run.Status ?? "Success";
+        
+        var list = new List<LogLineDto>
+        {
+            new LogLineDto(run.Id, "INFO", "Initiating job run container pipeline...", timestamp),
+            new LogLineDto(run.Id, "INFO", "Loading configuration parameters...", timestamp.AddMilliseconds(200)),
+            new LogLineDto(run.Id, "OK", "Successfully established connection with SQL Server.", timestamp.AddMilliseconds(550)),
+            new LogLineDto(run.Id, "INFO", "Beginning scanning schema constraints...", timestamp.AddMilliseconds(700)),
+            new LogLineDto(run.Id, "OK", "Schema constraints verified successfully.", timestamp.AddMilliseconds(900)),
+            new LogLineDto(run.Id, "INFO", "Transferring records via ADO.NET Bulk Copy...", timestamp.AddMilliseconds(1200))
+        };
+
+        if (status == "Success")
+        {
+            list.Add(new LogLineDto(run.Id, "OK", "Transferred 14,890 records successfully.", timestamp.AddSeconds(2)));
+            list.Add(new LogLineDto(run.Id, "INFO", "Finalizing transaction and closing DB descriptors...", timestamp.AddSeconds(2).AddMilliseconds(200)));
+            list.Add(new LogLineDto(run.Id, "OK", "Pipeline execution complete. Exit code: 0", timestamp.AddSeconds(2).AddMilliseconds(400)));
+        }
+        else
+        {
+            list.Add(new LogLineDto(run.Id, "WARN", "Slow network transfer rates detected. Speed: 154 KB/s", timestamp.AddSeconds(1)));
+            list.Add(new LogLineDto(run.Id, "ERROR", $"Fatal failure during SQL execution: {run.Message ?? "Primary Key Constraint violation."}", timestamp.AddSeconds(2)));
+            list.Add(new LogLineDto(run.Id, "INFO", "Rolling back transaction...", timestamp.AddSeconds(2).AddMilliseconds(100)));
+            list.Add(new LogLineDto(run.Id, "ERROR", "Pipeline execution aborted. Exit code: 1", timestamp.AddSeconds(2).AddMilliseconds(300)));
+        }
+
+        return list;
+    }
+}

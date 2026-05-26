@@ -1,0 +1,197 @@
+@using System.Threading
+@using NeoAdapter.Contracts.Auth
+@using NeoAdapter.Frontend.BlazorShared.Services
+@inject AppState AppState
+@inject OrgAdminApiClient OrgAdminApiClient
+
+<div style="padding: 28px 32px; display: flex; flex-direction: column; gap: 24px;">
+    
+    <!-- Title / Breadcrumb -->
+    <div>
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--violet-300); letter-spacing: 0.1em; text-transform: uppercase;">Nexus Governance</div>
+        <h1 style="font-size: 28px; font-weight: 800; margin: 4px 0 0; background: linear-gradient(135deg, white, var(--text-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Administration</h1>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert-danger">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert-success">@_successMessage</div>
+    }
+
+    <div class="content-grid">
+        
+        <!-- Left Panel: Users and Groups List -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">ORGANIZATION MEMBERS</div>
+                <div class="panel-actions">
+                    <button class="btn-ghost" @onclick="RefreshDataAsync">Refresh</button>
+                </div>
+            </div>
+
+            <div class="job-list" style="max-height: 450px; overflow-y: auto;">
+                <div class="panel-label" style="padding: 12px 16px 4px; font-size: 9px; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em;">
+                    Users
+                </div>
+                @if (_users.Count == 0)
+                {
+                    <div style="padding: 16px 20px; color: var(--text-muted); font-size: 13px;">No users found in organization.</div>
+                }
+                else
+                {
+                    @foreach (var user in _users)
+                    {
+                        var isSelected = _selectedUser?.Id == user.Id;
+                        <div class="job-item @(isSelected ? "active" : "")" @onclick="() => SelectUser(user)" style="cursor: pointer;">
+                            <div class="avatar" style="width: 28px; height: 28px; font-size: 10px;">
+                                @user.Username.Substring(0, Math.Min(2, user.Username.Length)).ToUpper()
+                            </div>
+                            <div class="job-item-info">
+                                <div class="job-item-name">@user.Username</div>
+                                <div class="job-item-meta">Role: @user.Role</div>
+                            </div>
+                            <span class="status-pill @(user.Role == "Administrator" ? "queued" : "idle")">
+                                @user.Role.ToUpper()
+                            </span>
+                        </div>
+                    }
+                }
+
+                <div class="panel-label" style="padding: 20px 16px 4px; font-size: 9px; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; border-top: 1px solid var(--border);">
+                    Groups
+                </div>
+                @if (_groups.Count == 0)
+                {
+                    <div style="padding: 16px 20px; color: var(--text-muted); font-size: 13px;">No organizational groups configured.</div>
+                }
+                else
+                {
+                    @foreach (var group in _groups)
+                    {
+                        <div class="job-item">
+                            <div class="job-item-icon green" style="width: 28px; height: 28px; font-size: 12px;">👥</div>
+                            <div class="job-item-info">
+                                <div class="job-item-name">@group.Name</div>
+                                <div class="job-item-meta">Members: @group.UserIds.Count</div>
+                            </div>
+                            <span class="status-pill idle">GROUP</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Right Panel: User Details and Role Editing -->
+        <div class="panel" style="padding: 24px;">
+            @if (_selectedUser != null)
+            {
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 16px; font-weight: 700; color: var(--violet-300);">
+                    USER GOVERNANCE DETAILS
+                </h3>
+
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-input" value="@_selectedUser.Username" readonly />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">User ID</label>
+                    <input type="text" class="form-input" value="@_selectedUser.Id" readonly style="font-family: var(--font-mono); font-size: 11px;" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Access Role</label>
+                    <select class="form-input" @bind="_selectedRole">
+                        <option value="User">User</option>
+                        <option value="Administrator">Administrator</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-primary" @onclick="UpdateUserRoleAsync" disabled="@_isBusy" style="margin-left: auto;">
+                        Apply Role Change
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 250px; color: var(--text-muted);">
+                    <span>⚙</span>
+                    <div style="font-size: 13px; margin-top: 8px;">Select a user from the list to modify governance permissions.</div>
+                </div>
+            }
+        </div>
+
+    </div>
+
+</div>
+
+@code {
+    private IReadOnlyList<OrganizationUserDto> _users = [];
+    private IReadOnlyList<OrganizationGroupDto> _groups = [];
+    private OrganizationUserDto? _selectedUser;
+    private string _selectedRole = "User";
+
+    private bool _isBusy = false;
+    private string? _errorMessage;
+    private string? _successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshDataAsync();
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        _errorMessage = null;
+        try
+        {
+            _users = await OrgAdminApiClient.GetUsersAsync(CancellationToken.None);
+            _groups = await OrgAdminApiClient.GetGroupsAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to retrieve administration records: {ex.Message}";
+        }
+    }
+
+    private void SelectUser(OrganizationUserDto user)
+    {
+        _selectedUser = user;
+        _selectedRole = user.Role;
+        ClearBanners();
+    }
+
+    private async Task UpdateUserRoleAsync()
+    {
+        if (_selectedUser == null) return;
+
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var req = new UpdateUserRolesRequest(_selectedRole);
+            await OrgAdminApiClient.UpdateUserRolesAsync(_selectedUser.Id, req, CancellationToken.None);
+            _successMessage = $"Successfully updated roles for user '{_selectedUser.Username}'.";
+            await RefreshDataAsync();
+            _selectedUser = _users.FirstOrDefault(u => u.Id == _selectedUser.Id);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Role update error: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void ClearBanners()
+    {
+        _errorMessage = null;
+        _successMessage = null;
+    }
+}

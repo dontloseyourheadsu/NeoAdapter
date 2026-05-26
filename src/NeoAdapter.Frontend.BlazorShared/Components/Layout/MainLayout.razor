@@ -1,0 +1,48 @@
+@inject AppState AppState
+@using NeoAdapter.Frontend.BlazorShared.Components.Pages
+@using NeoAdapter.Frontend.BlazorShared.Components.Layout
+
+@if (!AppState.IsAuthenticated)
+{
+    <Login />
+}
+else
+{
+    <div class="app">
+        <Sidebar />
+        <div style="display: flex; flex-direction: column; width: 100%; min-height: 100vh;">
+            <Topbar />
+            <main class="main">
+                @if (AppState.ActiveView == "dashboard")
+                {
+                    <Dashboard />
+                }
+                else if (AppState.ActiveView == "connectors")
+                {
+                    <Connectors />
+                }
+                else if (AppState.ActiveView == "logs")
+                {
+                    <Logs />
+                }
+                else if (AppState.ActiveView == "admin")
+                {
+                    <Admin />
+                }
+            </main>
+        </div>
+    </div>
+}
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        AppState.OnStateChanged += StateHasChanged;
+        await AppState.InitializeAsync();
+    }
+
+    public void Dispose()
+    {
+        AppState.OnStateChanged -= StateHasChanged;
+    }
+}

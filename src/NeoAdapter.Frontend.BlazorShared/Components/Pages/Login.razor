@@ -1,0 +1,209 @@
+@inject AppState AppState
+@inject AuthApiClient AuthApiClient
+@inject NavigationManager NavigationManager
+@inject IOAuthHelper OAuthHelper
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-title">NEOADAPTER</div>
+            <div class="login-subtitle">Nexus Job Orchestrator</div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(AppState.ErrorMessage))
+        {
+            <div class="alert-danger">@AppState.ErrorMessage</div>
+        }
+
+        @if (!string.IsNullOrEmpty(AppState.StatusMessage))
+        {
+            <div class="alert-success">@AppState.StatusMessage</div>
+        }
+
+        <div class="form-group">
+            <label class="form-label">Username</label>
+            <input type="text" class="form-input" @bind="_username" placeholder="Enter username..." />
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-input" @bind="_password" placeholder="Enter password..." />
+        </div>
+
+        <div class="form-group" style="margin: 20px 0;">
+            <label class="form-checkbox">
+                <input type="checkbox" @bind="_rememberMe" />
+                Remember me
+            </label>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <button class="btn-submit" @onclick="LoginAsync" disabled="@_isBusy">Login</button>
+            <button class="btn-submit" style="background: #1a1828; border: 1px solid var(--border);" @onclick="RegisterAsync" disabled="@_isBusy">Register</button>
+        </div>
+
+        <div class="login-divider">or</div>
+
+        <button class="btn-google" @onclick="LoginWithGoogleAsync" disabled="@_isBusy">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M21.35 11.1h-9.17v2.73h6.51c-.33 1.56-1.56 2.95-3.24 3.5v2.88h5.21c3.05-2.81 4.81-6.96 4.81-11.89 0-.82-.08-1.55-.12-2.22zM12.18 16.4c-2.42 0-4.5-1.63-5.23-3.83l-5.21 4.02C4.16 21.36 7.82 24 12.18 24c3.24 0 5.95-1.08 7.93-2.9l-5.21-2.88c-.68.42-1.66.71-2.72.71zM6.95 12c0-.68.12-1.35.33-2l-5.21-4.02C.73 7.94 0 9.89 0 12s.73 4.06 2.07 6.02l5.21-4.02c-.21-.65-.33-1.32-.33-2zM12.18 7.6c1.76 0 3.35.6 4.6 1.8l3.43-3.43C18.13 4.07 15.42 3 12.18 3 7.82 3 4.16 5.64 2.07 9.98l5.21 4.02c.73-2.2 2.81-3.83 5.23-3.83z"/>
+            </svg>
+            Sign in with Google
+        </button>
+    </div>
+</div>
+
+@code {
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private bool _rememberMe = true;
+    private bool _isBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Check for Google redirect tokens in the query parameters (WebAssembly only)
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+
+        var errorMsg = query.Get("error");
+        var tokenValue = query.Get("token");
+        var usernameValue = query.Get("username");
+
+        if (!string.IsNullOrEmpty(errorMsg))
+        {
+            AppState.ErrorMessage = $"Google authentication error: {errorMsg}";
+            AppState.NotifyStateChanged();
+        }
+        else if (!string.IsNullOrEmpty(tokenValue) && !string.IsNullOrEmpty(usernameValue))
+        {
+            try
+            {
+                var isAdminStr = query.Get("isAdmin") ?? "false";
+                var expiresAtStr = query.Get("expiresAtUtc") ?? "";
+                var refreshToken = query.Get("refreshToken") ?? "";
+
+                bool isAdmin = bool.TryParse(isAdminStr, out var parsedAdmin) && parsedAdmin;
+                DateTimeOffset expiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
+                if (DateTimeOffset.TryParse(expiresAtStr, out var parsedExpires))
+                {
+                    expiresAt = parsedExpires;
+                }
+
+                var authResponse = new AuthResponse(Guid.Empty, usernameValue!, tokenValue!, expiresAt, refreshToken, IsAdmin: isAdmin);
+                await AppState.ApplyAuthResponseAsync(authResponse);
+
+                // Strip query parameters
+                NavigationManager.NavigateTo(NavigationManager.Uri.Split('?')[0]);
+            }
+            catch (Exception ex)
+            {
+                AppState.ErrorMessage = $"Failed to login with Google redirect: {ex.Message}";
+                AppState.NotifyStateChanged();
+            }
+        }
+    }
+
+    private async Task LoginAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password))
+        {
+            AppState.ErrorMessage = "Username and password are required.";
+            return;
+        }
+
+        _isBusy = true;
+        AppState.ErrorMessage = null;
+        try
+        {
+            var response = await AuthApiClient.LoginAsync(new LoginRequest(_username, _password, _rememberMe), CancellationToken.None);
+            if (response != null)
+            {
+                await AppState.ApplyAuthResponseAsync(response);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppState.ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task RegisterAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password))
+        {
+            AppState.ErrorMessage = "Username and password are required.";
+            return;
+        }
+
+        _isBusy = true;
+        AppState.ErrorMessage = null;
+        try
+        {
+            var response = await AuthApiClient.RegisterAsync(new RegisterUserRequest(_username, _password), CancellationToken.None);
+            if (response != null)
+            {
+                await AppState.ApplyAuthResponseAsync(response);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppState.ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task LoginWithGoogleAsync()
+    {
+        _isBusy = true;
+        AppState.ErrorMessage = null;
+        try
+        {
+            var apiBase = await AuthApiClient.GetActiveBaseAddressAsync(CancellationToken.None);
+            
+            // Check if we are running in WebAssembly browser
+            if (OperatingSystem.IsBrowser())
+            {
+                // Web redirect flow
+                var currentUri = NavigationManager.Uri.Split('?')[0]; // base client url
+                var state = $"web:{currentUri}";
+                var loginUrl = $"{apiBase.TrimEnd('/')}/api/auth/google/login?port={Uri.EscapeDataString(state)}";
+                
+                NavigationManager.NavigateTo(loginUrl, forceLoad: true);
+            }
+            else
+            {
+                // Use the platform-specific OAuthHelper
+                AppState.StatusMessage = "Starting Google Sign-In...";
+                AppState.NotifyStateChanged();
+
+                var authResponse = await OAuthHelper.SignInAsync(apiBase, CancellationToken.None);
+                if (authResponse != null)
+                {
+                    await AppState.ApplyAuthResponseAsync(authResponse);
+                }
+                else
+                {
+                    AppState.ErrorMessage = "Google login cancelled or timed out.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppState.ErrorMessage = $"Google login failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+            AppState.StatusMessage = null;
+            AppState.NotifyStateChanged();
+        }
+    }
+}
+
