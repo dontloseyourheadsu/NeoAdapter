@@ -46,3 +46,27 @@ public sealed record EnqueueIntegrationJobResponse(
     Guid IntegrationJobId,
     string HangfireJobId,
     DateTimeOffset EnqueuedAtUtc);
+
+public sealed record IntegrationJobRunDto(
+    Guid Id,
+    Guid IntegrationJobId,
+    string Status,
+    string Message,
+    DateTimeOffset StartedAtUtc,
+    DateTimeOffset? FinishedAtUtc,
+    int RecordsProcessed,
+    string? HangfireJobId,
+    string StartedBy);
+
+public sealed record JobLogDto(
+    Guid Id,
+    Guid IntegrationJobId,
+    Guid? IntegrationJobRunId,
+    DateTimeOffset TimestampUtc,
+    string LogLevel,
+    string Message,
+    string? Details);
+
+public sealed record JobLogsResponse(
+    IReadOnlyList<JobLogDto> Logs,
+    DateTimeOffset? NextCursor);

@@ -91,6 +91,14 @@
                                             <StackPanel Grid.Column="1" HorizontalAlignment="Right">
                                                 <TextBlock Text="{Binding Status}" Foreground="{DynamicResource NeoAccentBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" />
                                                 <TextBlock Text="{Binding LastRunAtUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss}'}" Classes="muted" HorizontalAlignment="Right" />
+                                                <Button Content="Logs" 
+                                                        Classes="ghost-btn" 
+                                                        Command="{Binding $parent[UserControl].DataContext.ViewJobLogsFromSummaryCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Height="26"
+                                                        Padding="8,2"
+                                                        Margin="0,4,0,0"
+                                                        HorizontalAlignment="Right"/>
                                             </StackPanel>
                                         </Grid>
                                     </Border>

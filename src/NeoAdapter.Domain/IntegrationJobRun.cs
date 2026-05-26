@@ -18,5 +18,7 @@ public sealed class IntegrationJobRun
 
     public string? HangfireJobId { get; set; }
 
+    public string StartedBy { get; set; } = "System";
+
     public IntegrationJob? IntegrationJob { get; set; }
 }

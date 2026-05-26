@@ -13,6 +13,8 @@ public sealed class NeoAdapterDbContext(DbContextOptions<NeoAdapterDbContext> op
 
     public DbSet<IntegrationJobRun> IntegrationJobRuns => Set<IntegrationJobRun>();
 
+    public DbSet<IntegrationJobLogEntry> IntegrationJobLogs => Set<IntegrationJobLogEntry>();
+
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
 
     public DbSet<UserRefreshToken> UserRefreshTokens => Set<UserRefreshToken>();

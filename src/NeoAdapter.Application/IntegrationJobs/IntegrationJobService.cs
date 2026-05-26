@@ -16,14 +16,27 @@ public sealed class IntegrationJobService(
     IIntegrationJobScheduler integrationJobScheduler,
     IConnectorService connectorService) : IIntegrationJobService
 {
-    public async Task<IReadOnlyList<IntegrationJobDto>> GetAllAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<IntegrationJobDto>> GetAllAsync(Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
     {
-        var jobs = await dbContext.IntegrationJobs
+        IQueryable<IntegrationJob> query = dbContext.IntegrationJobs
             .AsNoTracking()
             .Include(job => job.Steps)
                 .ThenInclude(step => step.SourceConnector)
             .Include(job => job.Steps)
-                .ThenInclude(step => step.DestinationConnector)
+                .ThenInclude(step => step.DestinationConnector);
+
+        if (role == "Admin")
+        {
+            query = query.Where(job => job.OwnerOrganizationId == organizationId);
+        }
+        else
+        {
+            query = query.Where(job => 
+                job.OwnerOrganizationId == organizationId &&
+                (job.OwnerGroupId == null || job.OwnerGroupId == groupId || job.OwnerUserId == userId));
+        }
+
+        var jobs = await query
             .OrderBy(job => job.Name)
             .ToListAsync(cancellationToken);
 
@@ -93,13 +106,15 @@ public sealed class IntegrationJobService(
                 $"{trimmedName} - Step {stepRequest.OrderIndex} Source",
                 stepRequest.SourceType,
                 stepRequest.SourceSql,
-                stepRequest.SourceCsv), cancellationToken);
+                stepRequest.SourceCsv,
+                null), cancellationToken);
 
             var destinationConnectorDto = await connectorService.CreateAsync(new CreateConnectorRequest(
                 $"{trimmedName} - Step {stepRequest.OrderIndex} Destination",
                 stepRequest.DestinationType,
                 stepRequest.DestinationSql,
-                stepRequest.DestinationCsv), cancellationToken);
+                stepRequest.DestinationCsv,
+                null), cancellationToken);
 
             job.Steps.Add(new IntegrationJobStep
             {
@@ -126,7 +141,7 @@ public sealed class IntegrationJobService(
         return MapToDto(savedJob, null);
     }
 
-    public async Task<EnqueueIntegrationJobResponse> EnqueueRunAsync(Guid integrationJobId, CancellationToken cancellationToken)
+    public async Task<EnqueueIntegrationJobResponse> EnqueueRunAsync(Guid integrationJobId, string startedBy, CancellationToken cancellationToken)
     {
         var job = await dbContext.IntegrationJobs
             .FirstOrDefaultAsync(item => item.Id == integrationJobId, cancellationToken)
@@ -144,7 +159,8 @@ public sealed class IntegrationJobService(
             Status = "QUEUED",
             Message = "Queued for execution.",
             StartedAtUtc = DateTimeOffset.UtcNow,
-            RecordsProcessed = 0
+            RecordsProcessed = 0,
+            StartedBy = startedBy
         };
 
         dbContext.IntegrationJobRuns.Add(run);
@@ -156,6 +172,88 @@ public sealed class IntegrationJobService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return new EnqueueIntegrationJobResponse(integrationJobId, hangfireJobId, DateTimeOffset.UtcNow);
+    }
+
+    public async Task<IReadOnlyList<IntegrationJobRunDto>> GetJobRunsAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
+    {
+        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, cancellationToken);
+
+        return await dbContext.IntegrationJobRuns
+            .AsNoTracking()
+            .Where(r => r.IntegrationJobId == jobId)
+            .OrderByDescending(r => r.StartedAtUtc)
+            .Take(100)
+            .Select(r => new IntegrationJobRunDto(
+                r.Id,
+                r.IntegrationJobId,
+                r.Status,
+                r.Message,
+                r.StartedAtUtc,
+                r.FinishedAtUtc,
+                r.RecordsProcessed,
+                r.HangfireJobId,
+                r.StartedBy))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<JobLogsResponse> GetJobLogsAsync(Guid jobId, Guid? runId, DateTimeOffset? cursor, int limit, Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
+    {
+        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, cancellationToken);
+
+        IQueryable<IntegrationJobLogEntry> query = dbContext.IntegrationJobLogs
+            .AsNoTracking()
+            .Where(log => log.IntegrationJobId == jobId);
+
+        if (runId.HasValue)
+        {
+            query = query.Where(log => log.IntegrationJobRunId == runId.Value);
+        }
+
+        if (cursor.HasValue)
+        {
+            query = query.Where(log => log.TimestampUtc > cursor.Value);
+        }
+
+        var logs = await query
+            .OrderBy(log => log.TimestampUtc)
+            .Take(limit)
+            .Select(log => new JobLogDto(
+                log.Id,
+                log.IntegrationJobId,
+                log.IntegrationJobRunId,
+                log.TimestampUtc,
+                log.LogLevel,
+                log.Message,
+                log.Details))
+            .ToListAsync(cancellationToken);
+
+        DateTimeOffset? nextCursor = logs.Count > 0 ? logs[^1].TimestampUtc : null;
+
+        return new JobLogsResponse(logs, nextCursor);
+    }
+
+    private async Task EnsureJobAccessAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, CancellationToken cancellationToken)
+    {
+        var job = await dbContext.IntegrationJobs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+
+        bool hasAccess;
+        if (role == "Admin")
+        {
+            hasAccess = job.OwnerOrganizationId == organizationId;
+        }
+        else
+        {
+            hasAccess = job.OwnerOrganizationId == organizationId &&
+                (job.OwnerGroupId == null || job.OwnerGroupId == groupId || job.OwnerUserId == userId);
+        }
+
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("You do not have access to this integration job.");
+        }
     }
 
     private static IntegrationJobDto MapToDto(IntegrationJob job, IntegrationJobRun? latestRun)

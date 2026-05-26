@@ -37,6 +37,10 @@
                                                         Classes="ghost-btn" 
                                                         Command="{Binding #IntegrationsRoot.DataContext.RunIntegrationJobCommand}"
                                                         CommandParameter="{Binding}" />
+                                                <Button Content="Logs" 
+                                                        Classes="ghost-btn" 
+                                                        Command="{Binding #IntegrationsRoot.DataContext.ViewJobLogsCommand}"
+                                                        CommandParameter="{Binding}" />
                                                 <Button Content="Edit" Classes="ghost-btn" />
                                             </StackPanel>
                                         </Grid>

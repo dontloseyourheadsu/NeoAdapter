@@ -45,6 +45,12 @@ public sealed class IntegrationJobRunConfiguration : IEntityTypeConfiguration<In
             .HasColumnName("hangfire_job_id")
             .HasMaxLength(64);
 
+        builder.Property(run => run.StartedBy)
+            .HasColumnName("started_by")
+            .HasMaxLength(100)
+            .HasDefaultValue("System")
+            .IsRequired();
+
         builder.HasIndex(run => new { run.IntegrationJobId, run.StartedAtUtc });
 
         builder.HasOne(run => run.IntegrationJob)
