@@ -203,6 +203,26 @@ using (var scope = app.Services.CreateScope())
         ");
         
         await dbContext.Database.ExecuteSqlRawAsync(@"
+            DO $$ 
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='integration_job_runs' AND column_name='started_by') THEN
+                    ALTER TABLE integration_job_runs ADD COLUMN started_by character varying(100) NOT NULL DEFAULT 'System';
+                END IF;
+            END $$;");
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_job_logs (
+                id uuid PRIMARY KEY,
+                integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
+                integration_job_run_id uuid REFERENCES integration_job_runs(id) ON DELETE CASCADE,
+                timestamp_utc timestamp with time zone NOT NULL,
+                log_level character varying(16) NOT NULL,
+                message character varying(2000) NOT NULL,
+                details text
+            );
+        ");
+        
+        await dbContext.Database.ExecuteSqlRawAsync(@"
             CREATE TABLE IF NOT EXISTS user_accounts (
                 id uuid PRIMARY KEY,
                 username character varying(80) NOT NULL UNIQUE,
@@ -255,6 +275,7 @@ using (var scope = app.Services.CreateScope())
             END $$;");
 
         await dbContext.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS ix_integration_job_runs_job_started ON integration_job_runs (integration_job_id, started_at_utc);");
+        await dbContext.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS ix_integration_job_logs_job_timestamp ON integration_job_logs (integration_job_id, timestamp_utc);");
         
         await NeoAdapterSeedData.SeedAsync(dbContext, sqlSecretProtector, passwordHasher, CancellationToken.None);
         await integrationJobScheduler.SyncAllAsync(CancellationToken.None);
@@ -290,3 +311,5 @@ app.MapHealthChecks("/health");
 app.MapControllers();
 
 app.Run();
+
+public partial class Program { }
