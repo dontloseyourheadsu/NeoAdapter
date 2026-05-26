@@ -83,6 +83,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
         LoginCommand = new AsyncRelayCommand(() => LoginAsync(_refreshCts.Token));
         RegisterCommand = new AsyncRelayCommand(() => RegisterAsync(_refreshCts.Token));
+        LoginWithGoogleCommand = new AsyncRelayCommand(() => LoginWithGoogleAsync(_refreshCts.Token));
         LogoutCommand = new RelayCommand(Logout);
         RefreshCommand = new AsyncRelayCommand(() => RefreshAllAsync(_refreshCts.Token));
         CreateConnectorCommand = new AsyncRelayCommand(() => CreateConnectorAsync(_refreshCts.Token));
@@ -112,6 +113,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     public IAsyncRelayCommand LoginCommand { get; }
 
     public IAsyncRelayCommand RegisterCommand { get; }
+
+    public IAsyncRelayCommand LoginWithGoogleCommand { get; }
 
     public IRelayCommand LogoutCommand { get; }
 
@@ -637,6 +640,68 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             ErrorMessage = "Registration failed.";
+        }
+    }
+
+    private async Task LoginWithGoogleAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            ErrorMessage = null;
+            StatusMessage = "Starting Google Sign-In...";
+
+            int port = LocalOAuthReceiver.GetRandomUnusedPort();
+            var receiver = new LocalOAuthReceiver();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var receiverTask = receiver.ReceiveAuthResponseAsync(port, cts.Token);
+
+            var apiBase = await _authApiClient.GetActiveBaseAddressAsync(cancellationToken);
+            var loginUrl = $"{apiBase.TrimEnd('/')}/api/auth/google/login?port={port}";
+
+            OpenUrl(loginUrl);
+
+            cts.CancelAfter(TimeSpan.FromMinutes(2));
+            var authResponse = await receiverTask;
+
+            if (authResponse is null)
+            {
+                ErrorMessage = "Google login cancelled or timed out.";
+                return;
+            }
+
+            await ApplyAuthenticatedUserAsync(authResponse);
+            await StartPollingAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Google login failed: {ex.Message}";
+        }
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+            }
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux))
+            {
+                System.Diagnostics.Process.Start("xdg-open", url);
+            }
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX))
+            {
+                System.Diagnostics.Process.Start("open", url);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"Failed to open URL: {ex.Message}");
         }
     }
 

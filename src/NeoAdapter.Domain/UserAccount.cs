@@ -10,6 +10,10 @@ public sealed class UserAccount
 
     public string PasswordSalt { get; set; } = string.Empty;
 
+    public string? GoogleId { get; set; }
+
+    public string? Email { get; set; }
+
     public Guid OrganizationId { get; set; }
 
     public Guid? GroupId { get; set; }

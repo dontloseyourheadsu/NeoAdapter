@@ -35,6 +35,14 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
             .HasColumnName("organization_id")
             .IsRequired();
 
+        builder.Property(user => user.GoogleId)
+            .HasColumnName("google_id")
+            .HasMaxLength(100);
+
+        builder.Property(user => user.Email)
+            .HasColumnName("email")
+            .HasMaxLength(255);
+
         builder.Property(user => user.GroupId)
             .HasColumnName("group_id");
 
