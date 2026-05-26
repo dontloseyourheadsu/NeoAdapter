@@ -236,7 +236,9 @@ using (var scope = app.Services.CreateScope())
                 role_create boolean NOT NULL DEFAULT true,
                 role_admin boolean NOT NULL DEFAULT false,
                 created_at_utc timestamp with time zone NOT NULL,
-                last_login_at_utc timestamp with time zone
+                last_login_at_utc timestamp with time zone,
+                google_id character varying(100),
+                email character varying(255)
             );
         ");
 
@@ -288,6 +290,14 @@ using (var scope = app.Services.CreateScope())
 
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role_admin') THEN
                     ALTER TABLE user_accounts ADD COLUMN role_admin boolean NOT NULL DEFAULT false;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='google_id') THEN
+                    ALTER TABLE user_accounts ADD COLUMN google_id character varying(100);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='email') THEN
+                    ALTER TABLE user_accounts ADD COLUMN email character varying(255);
                 END IF;
 
                 -- Update seeded admin to have role_admin = true
