@@ -110,6 +110,41 @@ public sealed class AuthApiClient(HttpClient httpClient)
         }
     }
 
+    public async Task<string> GetActiveBaseAddressAsync(CancellationToken cancellationToken)
+    {
+        if (httpClient.BaseAddress is not null)
+        {
+            try
+            {
+                var response = await httpClient.GetAsync("api/auth/ping", cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    return httpClient.BaseAddress.AbsoluteUri;
+                }
+            }
+            catch {}
+        }
+
+        foreach (var fallback in FallbackBaseAddresses)
+        {
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(1000);
+                using var tempClient = new HttpClient { BaseAddress = fallback };
+                var response = await tempClient.GetAsync("api/auth/ping", cts.Token);
+                if (response.IsSuccessStatusCode)
+                {
+                    httpClient.BaseAddress = fallback;
+                    return fallback.AbsoluteUri;
+                }
+            }
+            catch {}
+        }
+
+        return httpClient.BaseAddress?.AbsoluteUri ?? "http://localhost:5193/";
+    }
+
     private static Uri Normalize(Uri uri)
     {
         var absolute = uri.IsAbsoluteUri ? uri : new Uri(uri.ToString(), UriKind.Absolute);
