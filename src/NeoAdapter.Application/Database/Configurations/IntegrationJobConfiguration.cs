@@ -62,5 +62,19 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
             .WithMany()
             .HasForeignKey(job => job.OwnerOrganizationId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(job => job.Groups)
+            .WithMany(group => group.IntegrationJobs)
+            .UsingEntity<Dictionary<string, object>>(
+                "IntegrationJobGroup",
+                r => r.HasOne<Group>().WithMany().HasForeignKey("group_id"),
+                l => l.HasOne<IntegrationJob>().WithMany().HasForeignKey("integration_job_id"),
+                je =>
+                {
+                    je.ToTable("integration_job_groups");
+                    je.Property<Guid>("integration_job_id").HasColumnName("integration_job_id");
+                    je.Property<Guid>("group_id").HasColumnName("group_id");
+                    je.HasKey("integration_job_id", "group_id");
+                });
     }
 }

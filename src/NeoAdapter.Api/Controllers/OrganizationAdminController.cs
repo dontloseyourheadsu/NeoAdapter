@@ -54,10 +54,6 @@ public sealed class OrganizationAdminController(NeoAdapterDbContext dbContext) :
         var user = await GetCurrentUserAsync(cancellationToken);
         if (user == null) return Unauthorized();
 
-        if (!user.RoleAdmin && user.Role != "Admin")
-        {
-            return Forbid();
-        }
 
         var groups = await dbContext.Groups
             .Where(g => g.OrganizationId == user.OrganizationId)

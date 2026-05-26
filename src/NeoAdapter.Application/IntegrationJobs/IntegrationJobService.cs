@@ -28,7 +28,8 @@ public sealed class IntegrationJobService(
             .Include(job => job.Steps)
                 .ThenInclude(step => step.SourceConnector)
             .Include(job => job.Steps)
-                .ThenInclude(step => step.DestinationConnector);
+                .ThenInclude(step => step.DestinationConnector)
+            .Include(job => job.Groups);
 
         if (roleAdmin || role == "Admin")
         {
@@ -38,7 +39,9 @@ public sealed class IntegrationJobService(
         {
             query = query.Where(job => 
                 job.OwnerOrganizationId == organizationId &&
-                (job.OwnerGroupId == null || job.OwnerGroupId == groupId || job.OwnerUserId == userId));
+                (job.OwnerGroupId == null && !job.Groups.Any() || 
+                 (groupId.HasValue && (job.OwnerGroupId == groupId || job.Groups.Any(g => g.Id == groupId.Value))) || 
+                 job.OwnerUserId == userId));
         }
 
         var jobs = await query
@@ -87,12 +90,13 @@ public sealed class IntegrationJobService(
         }
 
         // Ownership validation
-        if (request.OwnerUserId == null && request.OwnerGroupId == null && request.OwnerOrganizationId == null)
+        if (request.OwnerUserId == null && request.OwnerGroupId == null && (request.GroupIds == null || request.GroupIds.Count == 0) && request.OwnerOrganizationId == null)
         {
             throw new InvalidOperationException("Integration job must have an owner (User, Group, or Organization).");
         }
 
-        if (request.OwnerOrganizationId != organizationId)
+        var ownerOrgId = request.OwnerOrganizationId ?? organizationId;
+        if (ownerOrgId != organizationId)
         {
             throw new InvalidOperationException("You can only create jobs for your own organization.");
         }
@@ -108,12 +112,34 @@ public sealed class IntegrationJobService(
             Name = trimmedName,
             OwnerUserId = request.OwnerUserId,
             OwnerGroupId = request.OwnerGroupId,
-            OwnerOrganizationId = request.OwnerOrganizationId,
+            OwnerOrganizationId = ownerOrgId,
             IsEnabled = request.IsEnabled,
             CronExpression = cronExpression,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
+
+        var targetGroupIds = new List<Guid>();
+        if (request.OwnerGroupId.HasValue)
+        {
+            targetGroupIds.Add(request.OwnerGroupId.Value);
+        }
+        if (request.GroupIds != null)
+        {
+            targetGroupIds.AddRange(request.GroupIds);
+        }
+        targetGroupIds = targetGroupIds.Distinct().ToList();
+
+        if (targetGroupIds.Count > 0)
+        {
+            var groups = await dbContext.Groups
+                .Where(g => targetGroupIds.Contains(g.Id) && g.OrganizationId == organizationId)
+                .ToListAsync(cancellationToken);
+            foreach (var grp in groups)
+            {
+                job.Groups.Add(grp);
+            }
+        }
 
         foreach (var stepRequest in request.Steps.OrderBy(s => s.OrderIndex))
         {
@@ -151,6 +177,7 @@ public sealed class IntegrationJobService(
                 .ThenInclude(s => s.SourceConnector)
             .Include(j => j.Steps)
                 .ThenInclude(s => s.DestinationConnector)
+            .Include(j => j.Groups)
             .FirstAsync(j => j.Id == job.Id, cancellationToken);
 
         return MapToDto(savedJob, null);
@@ -261,20 +288,25 @@ public sealed class IntegrationJobService(
             throw new UnauthorizedAccessException("You do not have permission to read jobs.");
         }
 
-        var job = await dbContext.IntegrationJobs
-            .AsNoTracking()
-            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
-            ?? throw new KeyNotFoundException("Integration job not found.");
+        var jobExists = await dbContext.IntegrationJobs.AnyAsync(j => j.Id == jobId, cancellationToken);
+        if (!jobExists)
+        {
+            throw new KeyNotFoundException("Integration job not found.");
+        }
 
         bool hasAccess;
         if (roleAdmin || role == "Admin")
         {
-            hasAccess = job.OwnerOrganizationId == organizationId;
+            hasAccess = await dbContext.IntegrationJobs
+                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId, cancellationToken);
         }
         else
         {
-            hasAccess = job.OwnerOrganizationId == organizationId &&
-                (job.OwnerGroupId == null || job.OwnerGroupId == groupId || job.OwnerUserId == userId);
+            hasAccess = await dbContext.IntegrationJobs
+                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId &&
+                    (j.OwnerGroupId == null && !j.Groups.Any() || 
+                     (groupId.HasValue && (j.OwnerGroupId == groupId || j.Groups.Any(g => g.Id == groupId.Value))) || 
+                     j.OwnerUserId == userId), cancellationToken);
         }
 
         if (!hasAccess)
@@ -290,20 +322,25 @@ public sealed class IntegrationJobService(
             throw new UnauthorizedAccessException("You do not have permission to edit/write jobs.");
         }
 
-        var job = await dbContext.IntegrationJobs
-            .AsNoTracking()
-            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
-            ?? throw new KeyNotFoundException("Integration job not found.");
+        var jobExists = await dbContext.IntegrationJobs.AnyAsync(j => j.Id == jobId, cancellationToken);
+        if (!jobExists)
+        {
+            throw new KeyNotFoundException("Integration job not found.");
+        }
 
         bool hasAccess;
         if (roleAdmin || role == "Admin")
         {
-            hasAccess = job.OwnerOrganizationId == organizationId;
+            hasAccess = await dbContext.IntegrationJobs
+                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId, cancellationToken);
         }
         else
         {
-            hasAccess = job.OwnerOrganizationId == organizationId &&
-                (job.OwnerGroupId == null || job.OwnerGroupId == groupId || job.OwnerUserId == userId);
+            hasAccess = await dbContext.IntegrationJobs
+                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId &&
+                    (j.OwnerGroupId == null && !j.Groups.Any() || 
+                     (groupId.HasValue && (j.OwnerGroupId == groupId || j.Groups.Any(g => g.Id == groupId.Value))) || 
+                     j.OwnerUserId == userId), cancellationToken);
         }
 
         if (!hasAccess)
@@ -325,6 +362,8 @@ public sealed class IntegrationJobService(
                 s.DestinationConnector?.Name ?? "Unknown destination"))
             .ToList();
 
+        var groupIds = job.Groups?.Select(g => g.Id).ToList() ?? new List<Guid>();
+
         return new IntegrationJobDto(
             job.Id,
             job.Name,
@@ -335,6 +374,7 @@ public sealed class IntegrationJobService(
             job.UpdatedAtUtc,
             latestRun?.StartedAtUtc,
             latestRun?.Status,
-            latestRun?.Message);
+            latestRun?.Message,
+            groupIds);
     }
 }

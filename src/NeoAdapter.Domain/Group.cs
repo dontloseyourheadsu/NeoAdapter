@@ -17,4 +17,6 @@ public sealed class Group
     public UserAccount? Creator { get; set; }
 
     public ICollection<UserAccount> Members { get; set; } = new List<UserAccount>();
+
+    public ICollection<IntegrationJob> IntegrationJobs { get; set; } = new List<IntegrationJob>();
 }

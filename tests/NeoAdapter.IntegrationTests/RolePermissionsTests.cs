@@ -505,4 +505,87 @@ public class RolePermissionsTests : IClassFixture<DbFixture>, IAsyncLifetime
         var runResponse = await client.PostAsync($"api/integration-jobs/{secondOrgJobId}/run", null);
         runResponse.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.Forbidden);
     }
+
+    [Fact]
+    public async Task SharedGroups_ShouldAllowAccessToMembersOfAllSharedGroups_AndBlockOthers()
+    {
+        Guid orgId = Guid.NewGuid();
+        Guid group1Id = Guid.NewGuid();
+        Guid group2Id = Guid.NewGuid();
+        Guid group3Id = Guid.NewGuid();
+
+        // Seed organization and groups
+        using (var scope = _factory!.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NeoAdapterDbContext>();
+            var org = new Organization { Id = orgId, Name = $"SharedGroupsOrg_{Guid.NewGuid()}", CreatedAtUtc = DateTimeOffset.UtcNow };
+            db.Organizations.Add(org);
+
+            var group1 = new Group { Id = group1Id, Name = "Shared Group 1", OrganizationId = orgId, CreatorUserId = Guid.Empty, CreatedAtUtc = DateTimeOffset.UtcNow };
+            var group2 = new Group { Id = group2Id, Name = "Shared Group 2", OrganizationId = orgId, CreatorUserId = Guid.Empty, CreatedAtUtc = DateTimeOffset.UtcNow };
+            var group3 = new Group { Id = group3Id, Name = "Unshared Group 3", OrganizationId = orgId, CreatorUserId = Guid.Empty, CreatedAtUtc = DateTimeOffset.UtcNow };
+            db.Groups.AddRange(group1, group2, group3);
+
+            await db.SaveChangesAsync();
+        }
+
+        // Authenticate users
+        var token1 = await AuthenticateUserAsync("group1user", u => { u.OrganizationId = orgId; u.GroupId = group1Id; u.Role = "User"; u.RoleRead = true; u.RoleEdit = true; u.RoleCreate = true; });
+        var token2 = await AuthenticateUserAsync("group2user", u => { u.OrganizationId = orgId; u.GroupId = group2Id; u.Role = "User"; u.RoleRead = true; u.RoleEdit = true; u.RoleCreate = true; });
+        var token3 = await AuthenticateUserAsync("group3user", u => { u.OrganizationId = orgId; u.GroupId = group3Id; u.Role = "User"; u.RoleRead = true; u.RoleEdit = true; u.RoleCreate = true; });
+
+        // Create job shared with group1 and group2
+        var client1 = _factory.CreateClient();
+        client1.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token1);
+
+        var steps = new List<CreateIntegrationJobStepRequest>
+        {
+            new(
+                0,
+                NeoAdapter.Contracts.Connectors.ConnectorType.Postgres,
+                new SqlConnectorSettingsInputDto("localhost", 5432, "db", "user", "pass", true, "{}"),
+                null,
+                NeoAdapter.Contracts.Connectors.ConnectorType.Postgres,
+                new SqlConnectorSettingsInputDto("localhost", 5432, "db", "user", "pass", true, "{}"),
+                null)
+        };
+
+        var createJobReq = new CreateIntegrationJobRequest(
+            "Shared Multi-Group Job",
+            steps,
+            true,
+            null,
+            OwnerOrganizationId: orgId,
+            GroupIds: new[] { group1Id, group2Id }
+        );
+
+        var createResponse = await client1.PostAsJsonAsync("api/integration-jobs", createJobReq);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var createdJob = await createResponse.Content.ReadFromJsonAsync<IntegrationJobDto>();
+        createdJob.Should().NotBeNull();
+        createdJob!.GroupIds.Should().Contain(group1Id);
+        createdJob.GroupIds.Should().Contain(group2Id);
+
+        // Check if group1user can see it
+        var getResponse1 = await client1.GetAsync("api/integration-jobs");
+        getResponse1.StatusCode.Should().Be(HttpStatusCode.OK);
+        var jobs1 = await getResponse1.Content.ReadFromJsonAsync<IReadOnlyList<IntegrationJobDto>>();
+        jobs1.Should().ContainSingle(j => j.Id == createdJob.Id);
+
+        // Check if group2user can see it
+        var client2 = _factory.CreateClient();
+        client2.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token2);
+        var getResponse2 = await client2.GetAsync("api/integration-jobs");
+        getResponse2.StatusCode.Should().Be(HttpStatusCode.OK);
+        var jobs2 = await getResponse2.Content.ReadFromJsonAsync<IReadOnlyList<IntegrationJobDto>>();
+        jobs2.Should().ContainSingle(j => j.Id == createdJob.Id);
+
+        // Check if group3user (in the same org but not in shared groups) can see it
+        var client3 = _factory.CreateClient();
+        client3.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token3);
+        var getResponse3 = await client3.GetAsync("api/integration-jobs");
+        getResponse3.StatusCode.Should().Be(HttpStatusCode.OK);
+        var jobs3 = await getResponse3.Content.ReadFromJsonAsync<IReadOnlyList<IntegrationJobDto>>();
+        jobs3.Should().NotContain(j => j.Id == createdJob.Id);
+    }
 }

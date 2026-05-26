@@ -20,7 +20,8 @@ public sealed record IntegrationJobDto(
     DateTimeOffset UpdatedAtUtc,
     DateTimeOffset? LastRunAtUtc,
     string? LastRunStatus,
-    string? LastRunMessage);
+    string? LastRunMessage,
+    IReadOnlyList<Guid>? GroupIds = null);
 
 public sealed record CreateIntegrationJobStepRequest(
     int OrderIndex,
@@ -38,7 +39,8 @@ public sealed record CreateIntegrationJobRequest(
     string? CronExpression,
     Guid? OwnerUserId = null,
     Guid? OwnerGroupId = null,
-    Guid? OwnerOrganizationId = null);
+    Guid? OwnerOrganizationId = null,
+    IReadOnlyList<Guid>? GroupIds = null);
 
 public sealed record RunIntegrationJobRequest(Guid IntegrationJobId);
 

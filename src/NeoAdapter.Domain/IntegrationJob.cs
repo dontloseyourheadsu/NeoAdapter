@@ -21,4 +21,7 @@ public sealed class IntegrationJob
     public DateTimeOffset UpdatedAtUtc { get; set; }
 
     public ICollection<IntegrationJobStep> Steps { get; set; } = new List<IntegrationJobStep>();
+
+    public ICollection<Group> Groups { get; set; } = new List<Group>();
 }
+
