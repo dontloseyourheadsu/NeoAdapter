@@ -44,6 +44,26 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
             .HasDefaultValue("User")
             .IsRequired();
 
+        builder.Property(user => user.RoleRead)
+            .HasColumnName("role_read")
+            .HasDefaultValue(true)
+            .IsRequired();
+
+        builder.Property(user => user.RoleEdit)
+            .HasColumnName("role_edit")
+            .HasDefaultValue(true)
+            .IsRequired();
+
+        builder.Property(user => user.RoleCreate)
+            .HasColumnName("role_create")
+            .HasDefaultValue(true)
+            .IsRequired();
+
+        builder.Property(user => user.RoleAdmin)
+            .HasColumnName("role_admin")
+            .HasDefaultValue(false)
+            .IsRequired();
+
         builder.Property(user => user.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .HasColumnType("timestamp with time zone")

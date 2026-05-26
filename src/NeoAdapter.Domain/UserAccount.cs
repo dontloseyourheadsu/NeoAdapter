@@ -16,6 +16,14 @@ public sealed class UserAccount
 
     public string Role { get; set; } = "User"; // "Admin" or "User"
 
+    public bool RoleRead { get; set; } = true;
+
+    public bool RoleEdit { get; set; } = true;
+
+    public bool RoleCreate { get; set; } = true;
+
+    public bool RoleAdmin { get; set; } = false;
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset? LastLoginAtUtc { get; set; }

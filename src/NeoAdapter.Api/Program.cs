@@ -231,6 +231,10 @@ using (var scope = app.Services.CreateScope())
                 organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
                 group_id uuid REFERENCES groups(id) ON DELETE SET NULL,
                 role character varying(20) NOT NULL DEFAULT 'User',
+                role_read boolean NOT NULL DEFAULT true,
+                role_edit boolean NOT NULL DEFAULT true,
+                role_create boolean NOT NULL DEFAULT true,
+                role_admin boolean NOT NULL DEFAULT false,
                 created_at_utc timestamp with time zone NOT NULL,
                 last_login_at_utc timestamp with time zone
             );
@@ -270,8 +274,35 @@ using (var scope = app.Services.CreateScope())
                     ALTER TABLE user_accounts ADD COLUMN role character varying(20) NOT NULL DEFAULT 'User';
                 END IF;
 
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role_read') THEN
+                    ALTER TABLE user_accounts ADD COLUMN role_read boolean NOT NULL DEFAULT true;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role_edit') THEN
+                    ALTER TABLE user_accounts ADD COLUMN role_edit boolean NOT NULL DEFAULT true;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role_create') THEN
+                    ALTER TABLE user_accounts ADD COLUMN role_create boolean NOT NULL DEFAULT true;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='role_admin') THEN
+                    ALTER TABLE user_accounts ADD COLUMN role_admin boolean NOT NULL DEFAULT false;
+                END IF;
+
+                -- Update seeded admin to have role_admin = true
+                UPDATE user_accounts SET role_admin = true, role = 'Admin' WHERE username = 'admin';
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='connectors' AND column_name='owner_organization_id') THEN
+                    ALTER TABLE connectors ADD COLUMN owner_user_id uuid REFERENCES user_accounts(id) ON DELETE SET NULL;
+                    ALTER TABLE connectors ADD COLUMN owner_group_id uuid REFERENCES groups(id) ON DELETE SET NULL;
+                    ALTER TABLE connectors ADD COLUMN owner_organization_id uuid REFERENCES organizations(id) ON DELETE RESTRICT;
+                END IF;
+
                 UPDATE user_accounts SET organization_id = default_org_id WHERE organization_id IS NULL;
                 ALTER TABLE user_accounts ALTER COLUMN organization_id SET NOT NULL;
+
+                UPDATE connectors SET owner_organization_id = default_org_id WHERE owner_organization_id IS NULL;
             END $$;");
 
         await dbContext.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS ix_integration_job_runs_job_started ON integration_job_runs (integration_job_id, started_at_utc);");

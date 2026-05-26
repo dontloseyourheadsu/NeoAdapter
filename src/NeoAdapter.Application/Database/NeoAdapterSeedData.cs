@@ -42,6 +42,10 @@ public static class NeoAdapterSeedData
                 PasswordHash = passwordHasher.HashPassword("Admin123!").Hash,
                 OrganizationId = org.Id,
                 Role = "Admin",
+                RoleRead = true,
+                RoleEdit = true,
+                RoleCreate = true,
+                RoleAdmin = true,
                 CreatedAtUtc = now
             };
             dbContext.UserAccounts.Add(admin);
@@ -65,6 +69,7 @@ public static class NeoAdapterSeedData
                 SqlPassword = sqlSecretProtector.Protect("ChangeMe!123"),
                 SqlTrustServerCertificate = true,
                 SqlConfigJson = sqlConfig,
+                OwnerOrganizationId = org.Id,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };
@@ -76,6 +81,7 @@ public static class NeoAdapterSeedData
                 Type = ConnectorType.Csv,
                 CsvPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "neoadapter", "exports", "sample-export.csv"),
                 CsvDelimiter = ",",
+                OwnerOrganizationId = org.Id,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };
@@ -87,6 +93,7 @@ public static class NeoAdapterSeedData
                 Type = ConnectorType.Csv,
                 CsvPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "neoadapter", "imports", "sample-import.csv"),
                 CsvDelimiter = ",",
+                OwnerOrganizationId = org.Id,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };
@@ -103,6 +110,7 @@ public static class NeoAdapterSeedData
                 SqlPassword = sqlSecretProtector.Protect("ChangeMe!123"),
                 SqlTrustServerCertificate = true,
                 SqlConfigJson = sqlConfig,
+                OwnerOrganizationId = org.Id,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };

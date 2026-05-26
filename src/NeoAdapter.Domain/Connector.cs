@@ -30,6 +30,18 @@ public sealed class Connector
 
     public string? ExcelSheetName { get; set; }
 
+    public Guid? OwnerUserId { get; set; }
+
+    public Guid? OwnerGroupId { get; set; }
+
+    public Guid? OwnerOrganizationId { get; set; }
+
+    public UserAccount? OwnerUser { get; set; }
+
+    public Group? OwnerGroup { get; set; }
+
+    public Organization? OwnerOrganization { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }
