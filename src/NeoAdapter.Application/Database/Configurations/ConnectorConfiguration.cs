@@ -71,6 +71,30 @@ public sealed class ConnectorConfiguration : IEntityTypeConfiguration<Connector>
             .HasColumnName("excel_sheet_name")
             .HasMaxLength(255);
 
+        builder.Property(connector => connector.LocalPath)
+            .HasColumnName("local_path")
+            .HasMaxLength(1000);
+
+        builder.Property(connector => connector.SftpHost)
+            .HasColumnName("sftp_host")
+            .HasMaxLength(255);
+
+        builder.Property(connector => connector.SftpPort)
+            .HasColumnName("sftp_port");
+
+        builder.Property(connector => connector.SftpUsername)
+            .HasColumnName("sftp_username")
+            .HasMaxLength(255);
+
+        builder.Property(connector => connector.SftpPassword)
+            .HasColumnName("sftp_password")
+            .HasMaxLength(255);
+
+        builder.Property(connector => connector.SftpRemotePath)
+            .HasColumnName("sftp_remote_path")
+            .HasMaxLength(1000);
+
+
         builder.Property(connector => connector.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .HasColumnType("timestamp with time zone")
