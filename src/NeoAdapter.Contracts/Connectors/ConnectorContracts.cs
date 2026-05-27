@@ -50,20 +50,20 @@ public sealed record ExcelConnectorSettingsDto(
 public sealed record CreateConnectorRequest(
     string Name,
     ConnectorType Type,
-    SqlConnectorSettingsInputDto? Sql,
-    CsvConnectorSettingsDto? Csv,
-    ExcelConnectorSettingsDto? Excel,
-    PathConnectorSettingsDto? Path,
-    SftpConnectorSettingsInputDto? Sftp);
+    SqlConnectorSettingsInputDto? Sql = null,
+    CsvConnectorSettingsDto? Csv = null,
+    ExcelConnectorSettingsDto? Excel = null,
+    PathConnectorSettingsDto? Path = null,
+    SftpConnectorSettingsInputDto? Sftp = null);
 
 
 public sealed record TestConnectorRequest(
     ConnectorType Type,
-    SqlConnectorSettingsInputDto? Sql,
-    CsvConnectorSettingsDto? Csv,
-    ExcelConnectorSettingsDto? Excel,
-    PathConnectorSettingsDto? Path,
-    SftpConnectorSettingsInputDto? Sftp);
+    SqlConnectorSettingsInputDto? Sql = null,
+    CsvConnectorSettingsDto? Csv = null,
+    ExcelConnectorSettingsDto? Excel = null,
+    PathConnectorSettingsDto? Path = null,
+    SftpConnectorSettingsInputDto? Sftp = null);
 
 public sealed record PathConnectorSettingsDto(
     string Path);
