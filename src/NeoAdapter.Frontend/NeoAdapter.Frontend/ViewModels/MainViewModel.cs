@@ -84,6 +84,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         LoginCommand = new AsyncRelayCommand(() => LoginAsync(_refreshCts.Token));
         RegisterCommand = new AsyncRelayCommand(() => RegisterAsync(_refreshCts.Token));
         LoginWithGoogleCommand = new AsyncRelayCommand(() => LoginWithGoogleAsync(_refreshCts.Token));
+        LoginWithMicrosoftCommand = new AsyncRelayCommand(() => LoginWithMicrosoftAsync(_refreshCts.Token));
         LogoutCommand = new RelayCommand(Logout);
         RefreshCommand = new AsyncRelayCommand(() => RefreshAllAsync(_refreshCts.Token));
         CreateConnectorCommand = new AsyncRelayCommand(() => CreateConnectorAsync(_refreshCts.Token));
@@ -115,6 +116,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     public IAsyncRelayCommand RegisterCommand { get; }
 
     public IAsyncRelayCommand LoginWithGoogleCommand { get; }
+
+    public IAsyncRelayCommand LoginWithMicrosoftCommand { get; }
 
     public IRelayCommand LogoutCommand { get; }
 
@@ -731,6 +734,41 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             ErrorMessage = $"Google login failed: {ex.Message}";
+        }
+    }
+
+    private async Task LoginWithMicrosoftAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            ErrorMessage = null;
+            StatusMessage = "Starting Microsoft Sign-In...";
+
+            int port = LocalOAuthReceiver.GetRandomUnusedPort();
+            var receiver = new LocalOAuthReceiver();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var receiverTask = receiver.ReceiveAuthResponseAsync(port, cts.Token);
+
+            var apiBase = await _authApiClient.GetActiveBaseAddressAsync(cancellationToken);
+            var loginUrl = $"{apiBase.TrimEnd('/')}/api/auth/microsoft/login?port={port}";
+
+            OpenUrl(loginUrl);
+
+            cts.CancelAfter(TimeSpan.FromMinutes(2));
+            var authResponse = await receiverTask;
+
+            if (authResponse is null)
+            {
+                ErrorMessage = "Microsoft login cancelled or timed out.";
+                return;
+            }
+
+            await ApplyAuthenticatedUserAsync(authResponse);
+            await StartPollingAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Microsoft login failed: {ex.Message}";
         }
     }
 

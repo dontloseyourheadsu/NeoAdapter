@@ -72,6 +72,61 @@ In Development environment, the API validates a default development admin accoun
 If `admin` is missing, it is created.
 If `admin` exists but has a different password hash, it is reset to `Admin123!`.
 
+## Configuring External Authentication
+
+NeoAdapter supports external single sign-on (SSO) via Google and Microsoft (Azure Active Directory/Entra ID).
+
+### Client OAuth Flow
+
+The desktop and mobile client applications initiate authentication by calling the backend endpoints, which then redirect the user's default browser to the OAuth provider. The client listens locally on a temporary loopback port (e.g., `http://127.0.0.1:{port}/callback`) to receive the resulting JWT access and refresh tokens.
+
+### 1. Google Authentication Setup
+
+To enable Google sign-in:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create or select a project and configure the OAuth consent screen.
+3. Create an **OAuth client ID** credential with Application type **Web application**.
+4. Add the following to **Authorized redirect URIs**:
+   - `http://localhost:5193/api/auth/google/callback`
+   - `https://localhost:7277/api/auth/google/callback` (or your production API host URL)
+5. Configure the backend configuration (e.g., in `appsettings.json`, environment variables, or user secrets):
+   ```json
+   {
+     "Authentication": {
+       "Google": {
+         "ClientId": "YOUR_GOOGLE_CLIENT_ID",
+         "ClientSecret": "YOUR_GOOGLE_CLIENT_SECRET"
+       }
+     }
+   }
+   ```
+
+### 2. Microsoft Authentication Setup
+
+To enable Microsoft sign-in:
+
+1. Go to the [Azure Portal](https://portal.azure.com/) and search for **Microsoft Entra ID** (formerly Azure Active Directory).
+2. Register a new application under **App registrations**.
+3. Choose the supported account types (e.g., *Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant) and personal Microsoft accounts*).
+4. Add a **Web** platform in the Authentication settings with the redirect URIs:
+   - `http://localhost:5193/api/auth/microsoft/callback`
+   - `https://localhost:7277/api/auth/microsoft/callback` (or your production API host URL)
+5. Create a new **Client Secret** under *Certificates & secrets*.
+6. Configure the backend configuration:
+   ```json
+   {
+     "Authentication": {
+       "Microsoft": {
+         "ClientId": "YOUR_MICROSOFT_CLIENT_ID",
+         "ClientSecret": "YOUR_MICROSOFT_CLIENT_SECRET",
+         "TenantId": "common"
+       }
+     }
+   }
+   ```
+   *(Note: `TenantId` is optional and defaults to `common` to allow multi-tenant login, but can be set to a specific Azure AD Directory/Tenant GUID if desired).*
+
 ## Run Avalonia Desktop
 
 From repository root:
