@@ -132,6 +132,34 @@ public sealed class ConnectorService(
             connector.ExcelPath = request.Excel.Path.Trim();
             connector.ExcelSheetName = request.Excel.SheetName?.Trim();
         }
+        else if (request.Type == ConnectorTypeContract.Path)
+        {
+            if (request.Path is null)
+            {
+                throw new InvalidOperationException("Path connector settings are required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Path.Path))
+            {
+                throw new InvalidOperationException("Path is required.");
+            }
+
+            connector.LocalPath = request.Path.Path.Trim();
+        }
+        else if (request.Type == ConnectorTypeContract.Sftp)
+        {
+            if (request.Sftp is null)
+            {
+                throw new InvalidOperationException("SFTP connector settings are required.");
+            }
+
+            ValidateSftpSettings(request.Sftp);
+            connector.SftpHost = request.Sftp.Host.Trim();
+            connector.SftpPort = request.Sftp.Port;
+            connector.SftpUsername = request.Sftp.Username.Trim();
+            connector.SftpPassword = sqlSecretProtector.Protect(request.Sftp.Password);
+            connector.SftpRemotePath = request.Sftp.RemotePath.Trim();
+        }
         else
         {
             throw new InvalidOperationException("Unsupported connector type.");
@@ -322,6 +350,57 @@ public sealed class ConnectorService(
                 return new TestConnectorResponse(false, $"Excel test failed: {ex.Message}", DateTimeOffset.UtcNow);
             }
         }
+        else if (request.Type == ConnectorTypeContract.Path)
+        {
+            if (request.Path is null)
+            {
+                throw new InvalidOperationException("Path connector settings are required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Path.Path))
+            {
+                throw new InvalidOperationException("Path is required.");
+            }
+
+            var path = request.Path.Path.Trim();
+            try
+            {
+                var parentDir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(parentDir) && !Directory.Exists(parentDir))
+                {
+                    Directory.CreateDirectory(parentDir);
+                }
+                return new TestConnectorResponse(true, "Path verification test succeeded.", DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                return new TestConnectorResponse(false, $"Path verification test failed: {ex.Message}", DateTimeOffset.UtcNow);
+            }
+        }
+        else if (request.Type == ConnectorTypeContract.Sftp)
+        {
+            if (request.Sftp is null)
+            {
+                throw new InvalidOperationException("SFTP connector settings are required.");
+            }
+
+            ValidateSftpSettings(request.Sftp);
+            try
+            {
+                using var client = new Renci.SshNet.SftpClient(request.Sftp.Host, request.Sftp.Port, request.Sftp.Username, request.Sftp.Password);
+                client.Connect();
+                if (client.IsConnected)
+                {
+                    client.Disconnect();
+                    return new TestConnectorResponse(true, "SFTP connection test succeeded.", DateTimeOffset.UtcNow);
+                }
+                return new TestConnectorResponse(false, "SFTP connection test failed: Unknown reason.", DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                return new TestConnectorResponse(false, $"SFTP connection test failed: {ex.Message}", DateTimeOffset.UtcNow);
+            }
+        }
         else
         {
             throw new InvalidOperationException("Unsupported connector type.");
@@ -406,6 +485,22 @@ public sealed class ConnectorService(
                 connector.ExcelSheetName);
         }
 
+        PathConnectorSettingsDto? pathSettings = null;
+        if (connector.Type == ConnectorTypeDomain.Path)
+        {
+            pathSettings = new PathConnectorSettingsDto(connector.LocalPath ?? string.Empty);
+        }
+
+        SftpConnectorSettingsDto? sftpSettings = null;
+        if (connector.Type == ConnectorTypeDomain.Sftp)
+        {
+            sftpSettings = new SftpConnectorSettingsDto(
+                connector.SftpHost ?? string.Empty,
+                connector.SftpPort ?? 22,
+                connector.SftpUsername ?? string.Empty,
+                connector.SftpRemotePath ?? string.Empty);
+        }
+
         return new ConnectorDto(
             connector.Id,
             connector.Name,
@@ -413,6 +508,8 @@ public sealed class ConnectorService(
             sql,
             csv,
             excel,
+            pathSettings,
+            sftpSettings,
             connector.CreatedAtUtc,
             connector.UpdatedAtUtc);
     }
@@ -423,6 +520,8 @@ public sealed class ConnectorService(
         ConnectorTypeContract.Postgres => ConnectorTypeDomain.Postgres,
         ConnectorTypeContract.Csv => ConnectorTypeDomain.Csv,
         ConnectorTypeContract.Excel => ConnectorTypeDomain.Excel,
+        ConnectorTypeContract.Path => ConnectorTypeDomain.Path,
+        ConnectorTypeContract.Sftp => ConnectorTypeDomain.Sftp,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
@@ -432,8 +531,26 @@ public sealed class ConnectorService(
         ConnectorTypeDomain.Postgres => ConnectorTypeContract.Postgres,
         ConnectorTypeDomain.Csv => ConnectorTypeContract.Csv,
         ConnectorTypeDomain.Excel => ConnectorTypeContract.Excel,
+        ConnectorTypeDomain.Path => ConnectorTypeContract.Path,
+        ConnectorTypeDomain.Sftp => ConnectorTypeContract.Sftp,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
+
+    private static void ValidateSftpSettings(SftpConnectorSettingsInputDto sftp)
+    {
+        if (string.IsNullOrWhiteSpace(sftp.Host)
+            || string.IsNullOrWhiteSpace(sftp.Username)
+            || string.IsNullOrWhiteSpace(sftp.Password)
+            || string.IsNullOrWhiteSpace(sftp.RemotePath))
+        {
+            throw new InvalidOperationException("SFTP connector requires host, username, password, and remote path.");
+        }
+
+        if (sftp.Port <= 0)
+        {
+            throw new InvalidOperationException("SFTP connector port must be greater than zero.");
+        }
+    }
 
     private string BuildSqlServerConnectionString(SqlConnectorSettingsInputDto sql)
     {
