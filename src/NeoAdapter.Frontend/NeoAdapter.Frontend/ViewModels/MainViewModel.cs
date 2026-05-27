@@ -547,6 +547,16 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                             SelectedSourceConnector.Sql.ConfigJson)
                         : null,
                     SelectedSourceConnector.Csv,
+                    SelectedSourceConnector.Excel,
+                    SelectedSourceConnector.Path,
+                    SelectedSourceConnector.Sftp != null
+                        ? new SftpConnectorSettingsInputDto(
+                            SelectedSourceConnector.Sftp.Host,
+                            SelectedSourceConnector.Sftp.Port,
+                            SelectedSourceConnector.Sftp.Username,
+                            string.Empty, // Password not available in DTO for security
+                            SelectedSourceConnector.Sftp.RemotePath)
+                        : null,
                     SelectedDestinationConnector.Type,
                     SelectedDestinationConnector.Sql != null
                         ? new SqlConnectorSettingsInputDto(
@@ -558,7 +568,17 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                             SelectedDestinationConnector.Sql.TrustServerCertificate,
                             SelectedDestinationConnector.Sql.ConfigJson)
                         : null,
-                    SelectedDestinationConnector.Csv)
+                    SelectedDestinationConnector.Csv,
+                    SelectedDestinationConnector.Excel,
+                    SelectedDestinationConnector.Path,
+                    SelectedDestinationConnector.Sftp != null
+                        ? new SftpConnectorSettingsInputDto(
+                            SelectedDestinationConnector.Sftp.Host,
+                            SelectedDestinationConnector.Sftp.Port,
+                            SelectedDestinationConnector.Sftp.Username,
+                            string.Empty, // Password not available in DTO for security
+                            SelectedDestinationConnector.Sftp.RemotePath)
+                        : null)
             };
 
             var request = new CreateIntegrationJobRequest(
