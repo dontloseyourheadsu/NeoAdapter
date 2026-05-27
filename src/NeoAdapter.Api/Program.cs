@@ -267,6 +267,7 @@ using (var scope = app.Services.CreateScope())
                 created_at_utc timestamp with time zone NOT NULL,
                 last_login_at_utc timestamp with time zone,
                 google_id character varying(100),
+                microsoft_id character varying(100),
                 email character varying(255)
             );
         ");
@@ -323,6 +324,10 @@ using (var scope = app.Services.CreateScope())
 
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='google_id') THEN
                     ALTER TABLE user_accounts ADD COLUMN google_id character varying(100);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='microsoft_id') THEN
+                    ALTER TABLE user_accounts ADD COLUMN microsoft_id character varying(100);
                 END IF;
 
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_accounts' AND column_name='email') THEN

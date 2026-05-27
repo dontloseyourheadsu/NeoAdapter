@@ -242,4 +242,97 @@ public sealed class AuthService(
             newRefreshToken.Token,
             IsAdmin: user.RoleAdmin);
     }
+
+    public async Task<AuthResponse> ProcessMicrosoftUserAsync(MicrosoftUserInfo microsoftUser, CancellationToken cancellationToken)
+    {
+        var email = (microsoftUser.mail ?? microsoftUser.userPrincipalName)?.Trim();
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            throw new InvalidOperationException("Email is required from Microsoft account.");
+        }
+
+        // Find user by MicrosoftId or Email or Username
+        var user = await dbContext.UserAccounts
+            .FirstOrDefaultAsync(u => u.MicrosoftId == microsoftUser.id || (u.Email != null && u.Email.ToLower() == email.ToLower()) || u.Username.ToLower() == email.ToLower(), cancellationToken);
+
+        if (user != null)
+        {
+            // Link Microsoft account or update missing fields
+            if (string.IsNullOrEmpty(user.MicrosoftId))
+            {
+                user.MicrosoftId = microsoftUser.id;
+            }
+            if (string.IsNullOrEmpty(user.Email))
+            {
+                user.Email = email;
+            }
+            user.LastLoginAtUtc = DateTimeOffset.UtcNow;
+        }
+        else
+        {
+            // Auto-provision a new user in the default organization
+            var defaultOrg = await dbContext.Organizations.FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("No organizations found in the system. Microsoft sign-in is unavailable.");
+
+            // Create a unique username based on email (max 80 chars)
+            var username = email;
+            if (username.Length > 80)
+            {
+                username = username.Substring(0, 80);
+            }
+            var originalUsername = username;
+            int counter = 1;
+            while (await dbContext.UserAccounts.AnyAsync(u => u.Username.ToLower() == username.ToLower(), cancellationToken))
+            {
+                var suffix = counter.ToString();
+                var limit = 80 - suffix.Length;
+                username = (originalUsername.Length > limit ? originalUsername.Substring(0, limit) : originalUsername) + suffix;
+                counter++;
+            }
+
+            user = new UserAccount
+            {
+                Id = Guid.NewGuid(),
+                Username = username,
+                Email = email,
+                MicrosoftId = microsoftUser.id,
+                PasswordHash = "EXTERNAL_MICROSOFT_LOGIN",
+                PasswordSalt = string.Empty,
+                OrganizationId = defaultOrg.Id,
+                Role = "User",
+                RoleRead = true,
+                RoleEdit = true,
+                RoleCreate = true,
+                RoleAdmin = false,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                LastLoginAtUtc = DateTimeOffset.UtcNow
+            };
+
+            dbContext.UserAccounts.Add(user);
+        }
+
+        var accessToken = jwtTokenService.CreateAccessToken(user);
+        var newRefreshToken = jwtTokenService.CreateRefreshToken();
+
+        dbContext.UserRefreshTokens.Add(new UserRefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Token = newRefreshToken.Token,
+            ExpiresAtUtc = newRefreshToken.ExpiresAtUtc,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            IsRevoked = false,
+            IsUsed = false
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return new AuthResponse(
+            user.Id,
+            user.Username,
+            accessToken.Token,
+            accessToken.ExpiresAtUtc,
+            newRefreshToken.Token,
+            IsAdmin: user.RoleAdmin);
+    }
 }
