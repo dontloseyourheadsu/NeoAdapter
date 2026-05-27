@@ -541,13 +541,13 @@ public class RolePermissionsTests : IClassFixture<DbFixture>, IAsyncLifetime
         var steps = new List<CreateIntegrationJobStepRequest>
         {
             new(
-                0,
-                NeoAdapter.Contracts.Connectors.ConnectorType.Postgres,
-                new SqlConnectorSettingsInputDto("localhost", 5432, "db", "user", "pass", true, "{}"),
-                null,
-                NeoAdapter.Contracts.Connectors.ConnectorType.Postgres,
-                new SqlConnectorSettingsInputDto("localhost", 5432, "db", "user", "pass", true, "{}"),
-                null)
+                OrderIndex: 0,
+                SourceType: NeoAdapter.Contracts.Connectors.ConnectorType.Postgres,
+                SourceSql: new SqlConnectorSettingsInputDto("localhost", 5432, "db", "user", "pass", true, "{}"),
+                SourceCsv: null,
+                DestinationType: NeoAdapter.Contracts.Connectors.ConnectorType.Postgres,
+                DestinationSql: new SqlConnectorSettingsInputDto("localhost", 5432, "db", "user", "pass", true, "{}"),
+                DestinationCsv: null)
         };
 
         var createJobReq = new CreateIntegrationJobRequest(

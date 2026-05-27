@@ -12,6 +12,8 @@ public sealed class UserAccount
 
     public string? GoogleId { get; set; }
 
+    public string? MicrosoftId { get; set; }
+
     public string? Email { get; set; }
 
     public Guid OrganizationId { get; set; }

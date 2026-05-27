@@ -39,6 +39,10 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
             .HasColumnName("google_id")
             .HasMaxLength(100);
 
+        builder.Property(user => user.MicrosoftId)
+            .HasColumnName("microsoft_id")
+            .HasMaxLength(100);
+
         builder.Property(user => user.Email)
             .HasColumnName("email")
             .HasMaxLength(255);

@@ -11,6 +11,8 @@ public interface IAuthService
     Task<AuthResponse> RefreshTokenAsync(RefreshTokenRequest request, CancellationToken cancellationToken);
 
     Task<AuthResponse> ProcessGoogleUserAsync(GoogleUserInfo googleUser, CancellationToken cancellationToken);
+
+    Task<AuthResponse> ProcessMicrosoftUserAsync(MicrosoftUserInfo microsoftUser, CancellationToken cancellationToken);
 }
 
 public sealed record GoogleUserInfo(
@@ -19,3 +21,9 @@ public sealed record GoogleUserInfo(
     string email,
     bool email_verified,
     string picture);
+
+public sealed record MicrosoftUserInfo(
+    string id,
+    string displayName,
+    string? mail,
+    string userPrincipalName);

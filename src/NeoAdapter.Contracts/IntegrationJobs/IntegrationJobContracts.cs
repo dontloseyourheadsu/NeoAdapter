@@ -26,17 +26,17 @@ public sealed record IntegrationJobDto(
 public sealed record CreateIntegrationJobStepRequest(
     int OrderIndex,
     ConnectorType SourceType,
-    SqlConnectorSettingsInputDto? SourceSql,
-    CsvConnectorSettingsDto? SourceCsv,
-    ExcelConnectorSettingsDto? SourceExcel,
-    PathConnectorSettingsDto? SourcePath,
-    SftpConnectorSettingsInputDto? SourceSftp,
-    ConnectorType DestinationType,
-    SqlConnectorSettingsInputDto? DestinationSql,
-    CsvConnectorSettingsDto? DestinationCsv,
-    ExcelConnectorSettingsDto? DestinationExcel,
-    PathConnectorSettingsDto? DestinationPath,
-    SftpConnectorSettingsInputDto? DestinationSftp);
+    SqlConnectorSettingsInputDto? SourceSql = null,
+    CsvConnectorSettingsDto? SourceCsv = null,
+    ExcelConnectorSettingsDto? SourceExcel = null,
+    PathConnectorSettingsDto? SourcePath = null,
+    SftpConnectorSettingsInputDto? SourceSftp = null,
+    ConnectorType DestinationType = ConnectorType.SqlServer,
+    SqlConnectorSettingsInputDto? DestinationSql = null,
+    CsvConnectorSettingsDto? DestinationCsv = null,
+    ExcelConnectorSettingsDto? DestinationExcel = null,
+    PathConnectorSettingsDto? DestinationPath = null,
+    SftpConnectorSettingsInputDto? DestinationSftp = null);
 
 
 public sealed record CreateIntegrationJobRequest(

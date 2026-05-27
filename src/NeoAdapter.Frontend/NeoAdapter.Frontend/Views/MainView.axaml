@@ -60,6 +60,13 @@
                         <TextBlock Text="Sign in with Google" VerticalAlignment="Center" FontWeight="SemiBold" />
                     </StackPanel>
                 </Button>
+
+                <Button Command="{Binding LoginWithMicrosoftCommand}" Classes="microsoft-btn" HorizontalAlignment="Stretch" Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <PathIcon Width="16" Height="16" Data="M0,0 H7.5 V7.5 H0 Z M8.5,0 H16 V7.5 H8.5 Z M0,8.5 H7.5 V16 H0 Z M8.5,8.5 H16 V16 H8.5 Z" Foreground="{DynamicResource NeoPrimaryTextBrush}" />
+                        <TextBlock Text="Sign in with Microsoft" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Border>
 
