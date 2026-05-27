@@ -5,7 +5,9 @@ public enum ConnectorType
     SqlServer,
     Postgres,
     Csv,
-    Excel
+    Excel,
+    Path,
+    Sftp
 }
 
 public sealed record ConnectorDto(
@@ -15,6 +17,8 @@ public sealed record ConnectorDto(
     SqlConnectorSettingsDto? Sql,
     CsvConnectorSettingsDto? Csv,
     ExcelConnectorSettingsDto? Excel,
+    PathConnectorSettingsDto? Path,
+    SftpConnectorSettingsDto? Sftp,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -48,13 +52,34 @@ public sealed record CreateConnectorRequest(
     ConnectorType Type,
     SqlConnectorSettingsInputDto? Sql,
     CsvConnectorSettingsDto? Csv,
-    ExcelConnectorSettingsDto? Excel);
+    ExcelConnectorSettingsDto? Excel,
+    PathConnectorSettingsDto? Path,
+    SftpConnectorSettingsInputDto? Sftp);
+
 
 public sealed record TestConnectorRequest(
     ConnectorType Type,
     SqlConnectorSettingsInputDto? Sql,
     CsvConnectorSettingsDto? Csv,
-    ExcelConnectorSettingsDto? Excel);
+    ExcelConnectorSettingsDto? Excel,
+    PathConnectorSettingsDto? Path,
+    SftpConnectorSettingsInputDto? Sftp);
+
+public sealed record PathConnectorSettingsDto(
+    string Path);
+
+public sealed record SftpConnectorSettingsDto(
+    string Host,
+    int Port,
+    string Username,
+    string RemotePath);
+
+public sealed record SftpConnectorSettingsInputDto(
+    string Host,
+    int Port,
+    string Username,
+    string Password,
+    string RemotePath);
 
 public sealed record TestConnectorResponse(
     bool IsSuccess,

@@ -106,7 +106,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<IntegrationJobDto> IntegrationJobs { get; } = [];
 
-    public IReadOnlyList<ConnectorType> ConnectorTypes { get; } = [ConnectorType.SqlServer, ConnectorType.Postgres, ConnectorType.Csv, ConnectorType.Excel];
+    public IReadOnlyList<ConnectorType> ConnectorTypes { get; } = [ConnectorType.SqlServer, ConnectorType.Postgres, ConnectorType.Csv, ConnectorType.Excel, ConnectorType.Path, ConnectorType.Sftp];
 
     public IAsyncRelayCommand RefreshCommand { get; }
 
@@ -280,6 +280,28 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     public bool IsCsvConnectorSelected => NewConnectorType == ConnectorType.Csv;
 
     public bool IsExcelConnectorSelected => NewConnectorType == ConnectorType.Excel;
+ 
+    public bool IsPathConnectorSelected => NewConnectorType == ConnectorType.Path;
+ 
+    public bool IsSftpConnectorSelected => NewConnectorType == ConnectorType.Sftp;
+ 
+    [ObservableProperty]
+    private string _localPath = string.Empty;
+ 
+    [ObservableProperty]
+    private string _sftpHost = string.Empty;
+ 
+    [ObservableProperty]
+    private int _sftpPort = 22;
+ 
+    [ObservableProperty]
+    private string _sftpUsername = string.Empty;
+ 
+    [ObservableProperty]
+    private string _sftpPassword = string.Empty;
+ 
+    [ObservableProperty]
+    private string _sftpRemotePath = string.Empty;
 
     public void SetCsvPath(string path)
     {
@@ -303,6 +325,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(IsSqlConnectorSelected));
         OnPropertyChanged(nameof(IsCsvConnectorSelected));
         OnPropertyChanged(nameof(IsExcelConnectorSelected));
+        OnPropertyChanged(nameof(IsPathConnectorSelected));
+        OnPropertyChanged(nameof(IsSftpConnectorSelected));
     }
 
     private async Task StartPollingAsync()
@@ -420,6 +444,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                     : null,
                 IsExcelConnectorSelected
                     ? new ExcelConnectorSettingsDto(ExcelPath, string.IsNullOrWhiteSpace(ExcelSheetName) ? null : ExcelSheetName)
+                    : null,
+                IsPathConnectorSelected
+                    ? new PathConnectorSettingsDto(LocalPath)
+                    : null,
+                IsSftpConnectorSelected
+                    ? new SftpConnectorSettingsInputDto(SftpHost, SftpPort, SftpUsername, SftpPassword, SftpRemotePath)
                     : null);
 
             var created = await _connectorApiClient.CreateAsync(request, cancellationToken);
@@ -463,6 +493,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                     : null,
                 IsExcelConnectorSelected
                     ? new ExcelConnectorSettingsDto(ExcelPath, string.IsNullOrWhiteSpace(ExcelSheetName) ? null : ExcelSheetName)
+                    : null,
+                IsPathConnectorSelected
+                    ? new PathConnectorSettingsDto(LocalPath)
+                    : null,
+                IsSftpConnectorSelected
+                    ? new SftpConnectorSettingsInputDto(SftpHost, SftpPort, SftpUsername, SftpPassword, SftpRemotePath)
                     : null);
 
             var result = await _connectorApiClient.TestAsync(request, cancellationToken);
@@ -511,6 +547,16 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                             SelectedSourceConnector.Sql.ConfigJson)
                         : null,
                     SelectedSourceConnector.Csv,
+                    SelectedSourceConnector.Excel,
+                    SelectedSourceConnector.Path,
+                    SelectedSourceConnector.Sftp != null
+                        ? new SftpConnectorSettingsInputDto(
+                            SelectedSourceConnector.Sftp.Host,
+                            SelectedSourceConnector.Sftp.Port,
+                            SelectedSourceConnector.Sftp.Username,
+                            string.Empty, // Password not available in DTO for security
+                            SelectedSourceConnector.Sftp.RemotePath)
+                        : null,
                     SelectedDestinationConnector.Type,
                     SelectedDestinationConnector.Sql != null
                         ? new SqlConnectorSettingsInputDto(
@@ -522,7 +568,17 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                             SelectedDestinationConnector.Sql.TrustServerCertificate,
                             SelectedDestinationConnector.Sql.ConfigJson)
                         : null,
-                    SelectedDestinationConnector.Csv)
+                    SelectedDestinationConnector.Csv,
+                    SelectedDestinationConnector.Excel,
+                    SelectedDestinationConnector.Path,
+                    SelectedDestinationConnector.Sftp != null
+                        ? new SftpConnectorSettingsInputDto(
+                            SelectedDestinationConnector.Sftp.Host,
+                            SelectedDestinationConnector.Sftp.Port,
+                            SelectedDestinationConnector.Sftp.Username,
+                            string.Empty, // Password not available in DTO for security
+                            SelectedDestinationConnector.Sftp.RemotePath)
+                        : null)
             };
 
             var request = new CreateIntegrationJobRequest(

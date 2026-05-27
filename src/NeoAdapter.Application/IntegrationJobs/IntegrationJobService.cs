@@ -148,14 +148,18 @@ public sealed class IntegrationJobService(
                 stepRequest.SourceType,
                 stepRequest.SourceSql,
                 stepRequest.SourceCsv,
-                null), userId, organizationId, groupId, role, roleCreate, roleAdmin, cancellationToken);
+                stepRequest.SourceExcel,
+                stepRequest.SourcePath,
+                stepRequest.SourceSftp), userId, organizationId, groupId, role, roleCreate, roleAdmin, cancellationToken);
 
             var destinationConnectorDto = await connectorService.CreateAsync(new CreateConnectorRequest(
                 $"{trimmedName} - Step {stepRequest.OrderIndex} Destination",
                 stepRequest.DestinationType,
                 stepRequest.DestinationSql,
                 stepRequest.DestinationCsv,
-                null), userId, organizationId, groupId, role, roleCreate, roleAdmin, cancellationToken);
+                stepRequest.DestinationExcel,
+                stepRequest.DestinationPath,
+                stepRequest.DestinationSftp), userId, organizationId, groupId, role, roleCreate, roleAdmin, cancellationToken);
 
             job.Steps.Add(new IntegrationJobStep
             {

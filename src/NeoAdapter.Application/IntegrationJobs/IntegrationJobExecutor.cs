@@ -103,6 +103,14 @@ public sealed class IntegrationJobExecutor(
                 {
                     processed = await ExecuteSqlToSqlAsync(source, destination, job.Id, run.Id);
                 }
+                else if (source.Type == ConnectorType.Path && destination.Type == ConnectorType.Sftp)
+                {
+                    processed = await ExecutePathToSftpAsync(source, destination, job.Id, run.Id);
+                }
+                else if (source.Type == ConnectorType.Sftp && destination.Type == ConnectorType.Path)
+                {
+                    processed = await ExecuteSftpToPathAsync(source, destination, job.Id, run.Id);
+                }
                 else
                 {
                     throw new InvalidOperationException($"Unsupported connector direction in step {step.OrderIndex}.");
@@ -805,5 +813,172 @@ public sealed class IntegrationJobExecutor(
         }
 
         return rawValue;
+    }
+
+    private async Task<int> ExecutePathToSftpAsync(Connector pathConnector, Connector sftpConnector, Guid jobId, Guid runId)
+    {
+        var localPath = pathConnector.LocalPath;
+        if (string.IsNullOrWhiteSpace(localPath))
+        {
+            throw new InvalidOperationException("Local path is required.");
+        }
+
+        var host = sftpConnector.SftpHost;
+        var port = sftpConnector.SftpPort ?? 22;
+        var username = sftpConnector.SftpUsername;
+        var password = sqlSecretProtector.Unprotect(sftpConnector.SftpPassword ?? string.Empty);
+        var remotePath = sftpConnector.SftpRemotePath;
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(remotePath))
+        {
+            throw new InvalidOperationException("SFTP connector requires host, username, and remote path.");
+        }
+
+        await LogInfoAsync(jobId, runId, $"Connecting to SFTP destination '{host}:{port}'...");
+        using var client = new Renci.SshNet.SftpClient(host, port, username, password);
+        await Task.Run(() => client.Connect());
+        await LogInfoAsync(jobId, runId, "Connected to SFTP server successfully.");
+
+        int processed = 0;
+        if (Directory.Exists(localPath))
+        {
+            var files = Directory.GetFiles(localPath);
+            await LogInfoAsync(jobId, runId, $"Scanning local directory '{localPath}'. Found {files.Length} file(s) to upload.");
+            
+            foreach (var file in files)
+            {
+                var fileName = Path.GetFileName(file);
+                var destPath = remotePath;
+                try
+                {
+                    if (client.GetAttributes(remotePath).IsDirectory)
+                    {
+                        destPath = remotePath.TrimEnd('/') + "/" + fileName;
+                    }
+                }
+                catch
+                {
+                    // Target doesn't exist yet or isn't a directory
+                }
+
+                await LogInfoAsync(jobId, runId, $"Uploading '{fileName}' to '{destPath}'...");
+                using var fs = File.OpenRead(file);
+                await Task.Run(() => client.UploadFile(fs, destPath));
+                processed++;
+            }
+        }
+        else if (File.Exists(localPath))
+        {
+            var fileName = Path.GetFileName(localPath);
+            var destPath = remotePath;
+            try
+            {
+                if (client.GetAttributes(remotePath).IsDirectory)
+                {
+                    destPath = remotePath.TrimEnd('/') + "/" + fileName;
+                }
+            }
+            catch
+            {
+                // Target doesn't exist yet or isn't a directory
+            }
+
+            await LogInfoAsync(jobId, runId, $"Uploading single file '{fileName}' to '{destPath}'...");
+            using var fs = File.OpenRead(localPath);
+            await Task.Run(() => client.UploadFile(fs, destPath));
+            processed = 1;
+        }
+        else
+        {
+            throw new InvalidOperationException($"Local path '{localPath}' does not exist.");
+        }
+
+        await Task.Run(() => client.Disconnect());
+        return processed;
+    }
+
+    private async Task<int> ExecuteSftpToPathAsync(Connector sftpConnector, Connector pathConnector, Guid jobId, Guid runId)
+    {
+        var localPath = pathConnector.LocalPath;
+        if (string.IsNullOrWhiteSpace(localPath))
+        {
+            throw new InvalidOperationException("Local path is required.");
+        }
+
+        var host = sftpConnector.SftpHost;
+        var port = sftpConnector.SftpPort ?? 22;
+        var username = sftpConnector.SftpUsername;
+        var password = sqlSecretProtector.Unprotect(sftpConnector.SftpPassword ?? string.Empty);
+        var remotePath = sftpConnector.SftpRemotePath;
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(remotePath))
+        {
+            throw new InvalidOperationException("SFTP connector requires host, username, and remote path.");
+        }
+
+        await LogInfoAsync(jobId, runId, $"Connecting to SFTP source '{host}:{port}'...");
+        using var client = new Renci.SshNet.SftpClient(host, port, username, password);
+        await Task.Run(() => client.Connect());
+        await LogInfoAsync(jobId, runId, "Connected to SFTP server successfully.");
+
+        if (!client.Exists(remotePath))
+        {
+            throw new InvalidOperationException($"Remote path '{remotePath}' does not exist on SFTP server.");
+        }
+
+        var attrs = client.GetAttributes(remotePath);
+        int processed = 0;
+
+        if (attrs.IsDirectory)
+        {
+            if (!Directory.Exists(localPath))
+            {
+                Directory.CreateDirectory(localPath);
+            }
+
+            var files = client.ListDirectory(remotePath);
+            await LogInfoAsync(jobId, runId, $"Scanning remote SFTP directory '{remotePath}'...");
+
+            foreach (var file in files)
+            {
+                if (file.Name == "." || file.Name == "..") continue;
+                if (file.IsDirectory) continue;
+
+                var localFilePath = Path.Combine(localPath, file.Name);
+                await LogInfoAsync(jobId, runId, $"Downloading '{file.FullName}' to '{localFilePath}'...");
+                using (var fs = File.Create(localFilePath))
+                {
+                    await Task.Run(() => client.DownloadFile(file.FullName, fs));
+                }
+                processed++;
+            }
+        }
+        else
+        {
+            var localFilePath = localPath;
+            if (Directory.Exists(localPath))
+            {
+                var fileName = Path.GetFileName(remotePath);
+                localFilePath = Path.Combine(localPath, fileName);
+            }
+            else
+            {
+                var parentDir = Path.GetDirectoryName(localPath);
+                if (!string.IsNullOrWhiteSpace(parentDir))
+                {
+                    Directory.CreateDirectory(parentDir);
+                }
+            }
+
+            await LogInfoAsync(jobId, runId, $"Downloading single file '{remotePath}' to '{localFilePath}'...");
+            using (var fs = File.Create(localFilePath))
+            {
+                await Task.Run(() => client.DownloadFile(remotePath, fs));
+            }
+            processed = 1;
+        }
+
+        await Task.Run(() => client.Disconnect());
+        return processed;
     }
 }

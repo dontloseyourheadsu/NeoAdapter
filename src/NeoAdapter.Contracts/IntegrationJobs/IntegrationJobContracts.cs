@@ -28,9 +28,16 @@ public sealed record CreateIntegrationJobStepRequest(
     ConnectorType SourceType,
     SqlConnectorSettingsInputDto? SourceSql,
     CsvConnectorSettingsDto? SourceCsv,
+    ExcelConnectorSettingsDto? SourceExcel,
+    PathConnectorSettingsDto? SourcePath,
+    SftpConnectorSettingsInputDto? SourceSftp,
     ConnectorType DestinationType,
     SqlConnectorSettingsInputDto? DestinationSql,
-    CsvConnectorSettingsDto? DestinationCsv);
+    CsvConnectorSettingsDto? DestinationCsv,
+    ExcelConnectorSettingsDto? DestinationExcel,
+    PathConnectorSettingsDto? DestinationPath,
+    SftpConnectorSettingsInputDto? DestinationSftp);
+
 
 public sealed record CreateIntegrationJobRequest(
     string Name,

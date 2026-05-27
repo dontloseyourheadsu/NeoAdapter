@@ -5,5 +5,8 @@ public enum ConnectorType
     SqlServer,
     Postgres,
     Csv,
-    Excel
+    Excel,
+    Path,
+    Sftp
 }
+

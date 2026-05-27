@@ -30,6 +30,19 @@ public sealed class Connector
 
     public string? ExcelSheetName { get; set; }
 
+    public string? LocalPath { get; set; }
+
+    public string? SftpHost { get; set; }
+
+    public int? SftpPort { get; set; }
+
+    public string? SftpUsername { get; set; }
+
+    public string? SftpPassword { get; set; }
+
+    public string? SftpRemotePath { get; set; }
+
+
     public Guid? OwnerUserId { get; set; }
 
     public Guid? OwnerGroupId { get; set; }

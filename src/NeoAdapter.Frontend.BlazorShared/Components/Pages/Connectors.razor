@@ -133,6 +133,8 @@
                                 <option value="@ConnectorType.SqlServer">SQL Server (SqlServer)</option>
                                 <option value="@ConnectorType.Postgres">PostgreSQL (Postgres)</option>
                                 <option value="@ConnectorType.Csv">CSV File (Csv)</option>
+                                <option value="@ConnectorType.Path">Path (Local Directory/File)</option>
+                                <option value="@ConnectorType.Sftp">SFTP Server</option>
                             </select>
                         }
                         else
@@ -184,6 +186,41 @@
                         <div class="form-group">
                             <label class="form-label">Delimiter</label>
                             <input type="text" class="form-input" @bind="_csvDelimiter" readonly="@(!_isEditingConnector)" />
+                        </div>
+                    }
+                    else if (_connType == ConnectorType.Path)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Local Path</label>
+                            <input type="text" class="form-input" @bind="_localPath" readonly="@(!_isEditingConnector)" placeholder="e.g. C:\temp\files" />
+                        </div>
+                    }
+                    else if (_connType == ConnectorType.Sftp)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">SFTP Host</label>
+                            <input type="text" class="form-input" @bind="_sftpHost" readonly="@(!_isEditingConnector)" placeholder="e.g. sftp.example.com" />
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">SFTP Port</label>
+                                <input type="number" class="form-input" @bind="_sftpPort" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">SFTP Username</label>
+                                <input type="text" class="form-input" @bind="_sftpUsername" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
+                        @if (_isEditingConnector)
+                        {
+                            <div class="form-group">
+                                <label class="form-label">SFTP Password</label>
+                                <input type="password" class="form-input" @bind="_sftpPassword" />
+                            </div>
+                        }
+                        <div class="form-group">
+                            <label class="form-label">SFTP Remote Path</label>
+                            <input type="text" class="form-input" @bind="_sftpRemotePath" readonly="@(!_isEditingConnector)" placeholder="e.g. /upload" />
                         </div>
                     }
 
@@ -378,6 +415,13 @@
     private bool _sqlTrustCert = true;
     private string _csvPath = "";
     private string _csvDelimiter = ",";
+    
+    private string _localPath = "";
+    private string _sftpHost = "";
+    private int _sftpPort = 22;
+    private string _sftpUsername = "";
+    private string _sftpPassword = "";
+    private string _sftpRemotePath = "";
 
     // Form bindings (Job)
     private string _jobName = "";
@@ -419,6 +463,12 @@
         _sqlTrustCert = true;
         _csvPath = "";
         _csvDelimiter = ",";
+        _localPath = "";
+        _sftpHost = "";
+        _sftpPort = 22;
+        _sftpUsername = "";
+        _sftpPassword = "";
+        _sftpRemotePath = "";
         _isEditingConnector = true;
         ClearBanners();
     }
@@ -443,7 +493,19 @@
             _csvPath = connector.Csv.Path;
             _csvDelimiter = connector.Csv.Delimiter;
         }
-
+        else if (connector.Path != null)
+        {
+            _localPath = connector.Path.Path;
+        }
+        else if (connector.Sftp != null)
+        {
+            _sftpHost = connector.Sftp.Host;
+            _sftpPort = connector.Sftp.Port;
+            _sftpUsername = connector.Sftp.Username;
+            _sftpRemotePath = connector.Sftp.RemotePath;
+            _sftpPassword = "";
+        }
+ 
         ClearBanners();
     }
 
@@ -493,7 +555,9 @@
                     ? new SqlConnectorSettingsInputDto(_sqlHost, _sqlPort, _sqlDatabase, _sqlUsername, _sqlPassword, _sqlTrustCert, null)
                     : null,
                 _connType == ConnectorType.Csv ? new CsvConnectorSettingsDto(_csvPath, _csvDelimiter) : null,
-                null
+                null,
+                _connType == ConnectorType.Path ? new PathConnectorSettingsDto(_localPath) : null,
+                _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null
             );
 
             var result = await ConnectorApiClient.CreateAsync(req, CancellationToken.None);
@@ -527,7 +591,9 @@
                 ? new SqlConnectorSettingsInputDto(_sqlHost, _sqlPort, _sqlDatabase, _sqlUsername, _sqlPassword, _sqlTrustCert, null)
                 : null,
             _connType == ConnectorType.Csv ? new CsvConnectorSettingsDto(_csvPath, _csvDelimiter) : null,
-            null
+            null,
+            _connType == ConnectorType.Path ? new PathConnectorSettingsDto(_localPath) : null,
+            _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null
         );
     }
 
@@ -598,9 +664,15 @@
                 src.Type,
                 src.Sql != null ? new SqlConnectorSettingsInputDto(src.Sql.Host, src.Sql.Port, src.Sql.Database, src.Sql.Username, "", src.Sql.TrustServerCertificate, src.Sql.ConfigJson) : null,
                 src.Csv,
+                src.Excel,
+                src.Path,
+                src.Sftp != null ? new SftpConnectorSettingsInputDto(src.Sftp.Host, src.Sftp.Port, src.Sftp.Username, "", src.Sftp.RemotePath) : null,
                 dest.Type,
                 dest.Sql != null ? new SqlConnectorSettingsInputDto(dest.Sql.Host, dest.Sql.Port, dest.Sql.Database, dest.Sql.Username, "", dest.Sql.TrustServerCertificate, dest.Sql.ConfigJson) : null,
-                dest.Csv
+                dest.Csv,
+                dest.Excel,
+                dest.Path,
+                dest.Sftp != null ? new SftpConnectorSettingsInputDto(dest.Sftp.Host, dest.Sftp.Port, dest.Sftp.Username, "", dest.Sftp.RemotePath) : null
             );
 
             var req = new CreateIntegrationJobRequest(
