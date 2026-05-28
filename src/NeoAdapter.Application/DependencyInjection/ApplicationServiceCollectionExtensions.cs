@@ -4,6 +4,7 @@ using NeoAdapter.Application.Connectors;
 using NeoAdapter.Application.Dashboard;
 using NeoAdapter.Application.IntegrationJobs;
 using NeoAdapter.Application.Security;
+using NeoAdapter.Application.SqlEditor;
 
 namespace NeoAdapter.Application.DependencyInjection;
 
@@ -13,6 +14,7 @@ public static class ApplicationServiceCollectionExtensions
     {
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IConnectorService, ConnectorService>();
+        services.AddScoped<ISqlEditorService, SqlEditorService>();
         services.AddScoped<IIntegrationJobService, IntegrationJobService>();
         services.AddScoped<IIntegrationJobExecutor, IntegrationJobExecutor>();
         services.AddScoped<IIntegrationJobScheduler, IntegrationJobScheduler>();
