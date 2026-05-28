@@ -19,6 +19,7 @@ builder.Services.AddScoped(sp => new HttpClient
 // Register shared API clients
 builder.Services.AddScoped<AuthApiClient>();
 builder.Services.AddScoped<ConnectorApiClient>();
+builder.Services.AddScoped<SqlEditorApiClient>();
 builder.Services.AddScoped<DashboardApiClient>();
 builder.Services.AddScoped<IntegrationJobsApiClient>();
 builder.Services.AddScoped<OrgAdminApiClient>();
