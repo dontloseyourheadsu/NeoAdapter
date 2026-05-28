@@ -25,6 +25,10 @@ else
                 {
                     <Logs />
                 }
+                else if (AppState.ActiveView == "sqleditor")
+                {
+                    <SqlEditor />
+                }
                 else if (AppState.ActiveView == "admin")
                 {
                     <Admin />
