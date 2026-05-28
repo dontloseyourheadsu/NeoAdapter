@@ -26,6 +26,9 @@
         <button class="nav-item @(AppState.ActiveView == "logs" ? "active" : "")" @onclick='() => SetView("logs")'>
             <span>⟳</span> Job Logs
         </button>
+        <button class="nav-item @(AppState.ActiveView == "sqleditor" ? "active" : "")" @onclick='() => SetView("sqleditor")'>
+            <span>🗲</span> SQL Editor
+        </button>
     </div>
 
     @if (AppState.IsAdmin)
