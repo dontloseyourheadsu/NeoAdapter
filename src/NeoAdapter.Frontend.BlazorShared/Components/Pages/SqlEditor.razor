@@ -1,0 +1,623 @@
+@using System.Threading
+@using System.Collections.Generic
+@using NeoAdapter.Contracts.Connectors
+@using NeoAdapter.Contracts.SqlEditor
+@using NeoAdapter.Frontend.BlazorShared.Services
+@inject AppState AppState
+@inject ConnectorApiClient ConnectorApiClient
+@inject SqlEditorApiClient SqlEditorApiClient
+
+<div style="padding: 28px 32px; display: flex; flex-direction: column; gap: 24px; min-height: 100vh;">
+    
+    <!-- Title / Header -->
+    <div>
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--violet-300); letter-spacing: 0.1em; text-transform: uppercase;">Advanced Analytics</div>
+        <h1 style="font-size: 28px; font-weight: 800; margin: 4px 0 0; background: linear-gradient(135deg, white, var(--text-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">SQL Editor</h1>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert-danger" style="margin: 0;">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert-success" style="margin: 0;">@_successMessage</div>
+    }
+
+    <!-- Connection Manager Panel -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="panel-title">🔌 Connection Manager</div>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-ghost @(_selectedSourceType == "saved" ? "active" : "")" @onclick='() => SetSourceType("saved")'>Saved Connector</button>
+                <button class="btn-ghost @(_selectedSourceType == "string" ? "active" : "")" @onclick='() => SetSourceType("string")'>Connection String</button>
+                <button class="btn-ghost @(_selectedSourceType == "manual" ? "active" : "")" @onclick='() => SetSourceType("manual")'>Manual Config</button>
+            </div>
+        </div>
+        
+        <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px; background: rgba(255,255,255,0.01);">
+            @if (_selectedSourceType == "saved")
+            {
+                <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 250px;">
+                        <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Select SQL Connector</label>
+                        <select @bind="_selectedConnectorId" class="btn-ghost" style="width: 100%; height: 38px; padding: 0 12px; font-size: 13px; text-align: left; background: var(--bg-card);">
+                            <option value="">-- Choose a Saved Connector --</option>
+                            @foreach (var conn in _sqlConnectors)
+                            {
+                                <option value="@conn.Id">@conn.Name (@conn.Type - @conn.Sql?.Database)</option>
+                            }
+                        </select>
+                    </div>
+                    <button class="btn-primary" style="height: 38px;" @onclick="ConnectDatabase" disabled="@(_selectedConnectorId == Guid.Empty || _isConnecting)">
+                        @(_isConnecting ? "Connecting..." : "Connect")
+                    </button>
+                </div>
+            }
+            else if (_selectedSourceType == "string")
+            {
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Database Type</label>
+                            <select @bind="_manualType" class="btn-ghost" style="height: 38px; padding: 0 12px; background: var(--bg-card);">
+                                <option value="@ConnectorType.SqlServer">Microsoft SQL Server</option>
+                                <option value="@ConnectorType.Postgres">PostgreSQL</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 3; min-width: 300px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Connection String</label>
+                            <input type="text" @bind="_rawConnectionString" class="btn-ghost" style="height: 38px; padding: 0 12px; font-family: var(--font-mono); font-size: 12px; background: var(--bg-card);" placeholder="Server=localhost;Database=test;User Id=sa;Password=secret;" />
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="saveStringConn" @bind="_saveConnection" />
+                            <label for="saveStringConn" style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">Save connection</label>
+                            
+                            @if (_saveConnection)
+                            {
+                                <input type="text" @bind="_connectionName" class="btn-ghost" style="height: 28px; padding: 0 8px; font-size: 12px; margin-left: 12px;" placeholder="Saved Connector Name" />
+                            }
+                        </div>
+                        <button class="btn-primary" style="height: 38px;" @onclick="ConnectDatabase" disabled="@(string.IsNullOrWhiteSpace(_rawConnectionString) || _isConnecting)">
+                            @(_isConnecting ? "Connecting..." : "Connect")
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (_selectedSourceType == "manual")
+            {
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 150px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">DB Type</label>
+                            <select @bind="_manualType" @bind:after="OnManualTypeChanged" class="btn-ghost" style="height: 38px; padding: 0 12px; background: var(--bg-card);">
+                                <option value="@ConnectorType.SqlServer">Microsoft SQL Server</option>
+                                <option value="@ConnectorType.Postgres">PostgreSQL</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 2; min-width: 200px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Host</label>
+                            <input type="text" @bind="_manualHost" class="btn-ghost" style="height: 38px; padding: 0 12px; background: var(--bg-card);" />
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 100px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Port</label>
+                            <input type="number" @bind="_manualPort" class="btn-ghost" style="height: 38px; padding: 0 12px; background: var(--bg-card);" />
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 2; min-width: 200px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Database</label>
+                            <input type="text" @bind="_manualDatabase" class="btn-ghost" style="height: 38px; padding: 0 12px; background: var(--bg-card);" />
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Username</label>
+                            <input type="text" @bind="_manualUsername" class="btn-ghost" style="height: 38px; padding: 0 12px; background: var(--bg-card);" />
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px;">
+                            <label style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: var(--text-secondary);">Password</label>
+                            <input type="password" @bind="_manualPassword" class="btn-ghost" style="height: 38px; padding: 0 12px; background: var(--bg-card);" />
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; justify-content: flex-end; min-width: 150px; padding-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="trustCert" @bind="_manualTrustCert" />
+                                <label for="trustCert" style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">Trust Certificate</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="saveManualConn" @bind="_saveConnection" />
+                            <label for="saveManualConn" style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">Save connection</label>
+                            
+                            @if (_saveConnection)
+                            {
+                                <input type="text" @bind="_connectionName" class="btn-ghost" style="height: 28px; padding: 0 8px; font-size: 12px; margin-left: 12px;" placeholder="Saved Connector Name" />
+                            }
+                        </div>
+                        <button class="btn-primary" style="height: 38px;" @onclick="ConnectDatabase" disabled="@(_isConnecting || string.IsNullOrWhiteSpace(_manualDatabase))">
+                            @(_isConnecting ? "Connecting..." : "Connect")
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Main Workspace Split Grid -->
+    <div style="display: flex; gap: 24px; flex-wrap: wrap;">
+        
+        <!-- Left Panel: Schema Explorer -->
+        <div class="panel" style="flex: 1 1 280px; min-height: 400px; display: flex; flex-direction: column;">
+            <div class="panel-header">
+                <div class="panel-title">📁 Schema Explorer</div>
+                @if (_schema != null)
+                {
+                    <span style="font-size: 11px; color: var(--violet-300); font-family: var(--font-mono);">CONNECTED</span>
+                }
+            </div>
+            
+            <div style="padding: 16px; flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; max-height: 500px;">
+                @if (_isLoadingSchema)
+                {
+                    <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0;">
+                        Retrieving schema details...
+                    </div>
+                }
+                else if (_schema == null)
+                {
+                    <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0; line-height: 1.5;">
+                        No database connected.<br />Select a source above and click Connect to explore.
+                    </div>
+                }
+                else
+                {
+                    <!-- Tables -->
+                    <div>
+                        <button class="btn-ghost" style="width: 100%; text-align: left; display: flex; justify-content: space-between; font-weight: bold; padding: 8px 12px; background: rgba(255,255,255,0.02);" @onclick="ToggleTables">
+                            <span>📊 Tables (@_schema.Tables.Count)</span>
+                            <span>@(_showTables ? "▼" : "▶")</span>
+                        </button>
+                        @if (_showTables)
+                        {
+                            <div style="padding: 6px 0 6px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto;">
+                                @if (_schema.Tables.Count == 0)
+                                {
+                                    <div style="color: var(--text-muted); font-size: 11px; padding: 4px;">No tables found.</div>
+                                }
+                                @foreach (var table in _schema.Tables)
+                                {
+                                    var fullName = $"{table.Schema}.{table.Name}";
+                                    <div style="display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); padding: 4px; border-bottom: 1px dashed rgba(255,255,255,0.03);">
+                                        <span title="@fullName" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">@fullName</span>
+                                        <button class="btn-ghost" style="padding: 1px 6px; font-size: 9px;" @onclick='() => InsertTemplateQuery("table", table.Schema, table.Name)'>SQL</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Views -->
+                    <div>
+                        <button class="btn-ghost" style="width: 100%; text-align: left; display: flex; justify-content: space-between; font-weight: bold; padding: 8px 12px; background: rgba(255,255,255,0.02);" @onclick="ToggleViews">
+                            <span>👁 Views (@_schema.Views.Count)</span>
+                            <span>@(_showViews ? "▼" : "▶")</span>
+                        </button>
+                        @if (_showViews)
+                        {
+                            <div style="padding: 6px 0 6px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto;">
+                                @if (_schema.Views.Count == 0)
+                                {
+                                    <div style="color: var(--text-muted); font-size: 11px; padding: 4px;">No views found.</div>
+                                }
+                                @foreach (var view in _schema.Views)
+                                {
+                                    var fullName = $"{view.Schema}.{view.Name}";
+                                    <div style="display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); padding: 4px; border-bottom: 1px dashed rgba(255,255,255,0.03);">
+                                        <span title="@fullName" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">@fullName</span>
+                                        <button class="btn-ghost" style="padding: 1px 6px; font-size: 9px;" @onclick='() => InsertTemplateQuery("view", view.Schema, view.Name)'>SQL</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Procedures -->
+                    <div>
+                        <button class="btn-ghost" style="width: 100%; text-align: left; display: flex; justify-content: space-between; font-weight: bold; padding: 8px 12px; background: rgba(255,255,255,0.02);" @onclick="ToggleProcedures">
+                            <span>⚙ Procedures (@_schema.Procedures.Count)</span>
+                            <span>@(_showProcedures ? "▼" : "▶")</span>
+                        </button>
+                        @if (_showProcedures)
+                        {
+                            <div style="padding: 6px 0 6px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto;">
+                                @if (_schema.Procedures.Count == 0)
+                                {
+                                    <div style="color: var(--text-muted); font-size: 11px; padding: 4px;">No procedures found.</div>
+                                }
+                                @foreach (var proc in _schema.Procedures)
+                                {
+                                    var fullName = $"{proc.Schema}.{proc.Name}";
+                                    <div style="display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); padding: 4px; border-bottom: 1px dashed rgba(255,255,255,0.03);">
+                                        <span title="@fullName" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">@fullName</span>
+                                        <button class="btn-ghost" style="padding: 1px 6px; font-size: 9px;" @onclick='() => InsertTemplateQuery("proc", proc.Schema, proc.Name)'>CALL</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Functions -->
+                    <div>
+                        <button class="btn-ghost" style="width: 100%; text-align: left; display: flex; justify-content: space-between; font-weight: bold; padding: 8px 12px; background: rgba(255,255,255,0.02);" @onclick="ToggleFunctions">
+                            <span>🖩 Functions (@_schema.Functions.Count)</span>
+                            <span>@(_showFunctions ? "▼" : "▶")</span>
+                        </button>
+                        @if (_showFunctions)
+                        {
+                            <div style="padding: 6px 0 6px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto;">
+                                @if (_schema.Functions.Count == 0)
+                                {
+                                    <div style="color: var(--text-muted); font-size: 11px; padding: 4px;">No functions found.</div>
+                                }
+                                @foreach (var func in _schema.Functions)
+                                {
+                                    var fullName = $"{func.Schema}.{func.Name}";
+                                    <div style="display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); padding: 4px; border-bottom: 1px dashed rgba(255,255,255,0.03);">
+                                        <span title="@fullName" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">@fullName</span>
+                                        <button class="btn-ghost" style="padding: 1px 6px; font-size: 9px;" @onclick='() => InsertTemplateQuery("func", func.Schema, func.Name)'>CALL</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Right Panel: Editor & Results -->
+        <div style="flex: 2 1 600px; display: flex; flex-direction: column; gap: 24px;">
+            
+            <!-- SQL Input Area -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">✏️ Query Editor</div>
+                    <span style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">READ-ONLY MODE (NO WRITE PERMITTED)</span>
+                </div>
+                <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                    <textarea @bind="_queryText" style="width: 100%; height: 160px; font-family: var(--font-mono); font-size: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: #0b0c10; color: #66fcf1; resize: vertical;" placeholder="-- Enter SQL Query here (e.g. SELECT * FROM table;)" disabled="@(!_isConnected)"></textarea>
+                    
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+                        <button class="btn-primary" @onclick="ExecuteQuery" disabled="@(!_isConnected || string.IsNullOrWhiteSpace(_queryText) || _isExecuting)">
+                            @(_isExecuting ? "Executing..." : "▶ Run Query")
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Query Results -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">📊 Query Results</div>
+                    @if (_queryResult != null)
+                    {
+                        <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+                            Rows: @(_queryResult.Rows?.Count ?? 0) | Affected: @_queryResult.RowsAffected
+                        </span>
+                    }
+                </div>
+                <div style="padding: 20px; overflow-x: auto; min-height: 200px; background: rgba(0,0,0,0.1); max-height: 450px; overflow-y: auto;">
+                    @if (_isExecuting)
+                    {
+                        <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0;">
+                            Running query on database...
+                        </div>
+                    }
+                    else if (_queryResult == null)
+                    {
+                        <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0;">
+                            No results to display. Execute a query to view data.
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(_queryResult.ErrorMessage))
+                    {
+                        <div class="alert-danger" style="margin: 0; padding: 16px; font-family: var(--font-mono); font-size: 12.5px; border-radius: var(--radius);">
+                            <strong>Error executing query:</strong>
+                            <pre style="margin: 8px 0 0; white-space: pre-wrap;">@_queryResult.ErrorMessage</pre>
+                        </div>
+                    }
+                    else if (_queryResult.Columns.Count == 0)
+                    {
+                        <div style="color: var(--violet-300); font-size: 13px; text-align: center; padding: 40px 0; font-family: var(--font-mono);">
+                            Query executed successfully. Affected rows: @_queryResult.RowsAffected.
+                        </div>
+                    }
+                    else
+                    {
+                        <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border); background: rgba(255,255,255,0.02);">
+                                    @foreach (var col in _queryResult.Columns)
+                                    {
+                                        <th style="padding: 10px 12px; font-family: var(--font-display); font-weight: 600; color: white;">@col</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (_queryResult.Rows.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="@_queryResult.Columns.Count" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                                            No rows returned.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @for (int r = 0; r < _queryResult.Rows.Count; r++)
+                                    {
+                                        var row = _queryResult.Rows[r];
+                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); hover: background-color: rgba(255,255,255,0.01);">
+                                            @foreach (var val in row)
+                                            {
+                                                <td style="padding: 10px 12px; font-family: var(--font-mono); color: var(--text-secondary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                    @(val?.ToString() ?? "NULL")
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+            
+        </div>
+
+    </div>
+
+</div>
+
+@code {
+    private string _errorMessage = "";
+    private string _successMessage = "";
+    
+    private string _selectedSourceType = "saved";
+    
+    private Guid _selectedConnectorId = Guid.Empty;
+    private IReadOnlyList<ConnectorDto> _connectors = Array.Empty<ConnectorDto>();
+    private List<ConnectorDto> _sqlConnectors = new();
+    
+    private string _rawConnectionString = "";
+    private bool _saveConnection = false;
+    private string _connectionName = "";
+    
+    private string _manualHost = "localhost";
+    private int _manualPort = 1433;
+    private string _manualDatabase = "";
+    private string _manualUsername = "";
+    private string _manualPassword = "";
+    private bool _manualTrustCert = true;
+    private ConnectorType _manualType = ConnectorType.SqlServer;
+    
+    private bool _isConnecting = false;
+    private bool _isConnected = false;
+    private bool _isLoadingSchema = false;
+    
+    private SqlSchemaResponse? _schema = null;
+    private bool _showTables = true;
+    private bool _showViews = false;
+    private bool _showProcedures = false;
+    private bool _showFunctions = false;
+    
+    private string _queryText = "";
+    private bool _isExecuting = false;
+    private QueryResultDto? _queryResult = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConnectorsAsync();
+    }
+
+    private async Task LoadConnectorsAsync()
+    {
+        _connectors = await ConnectorApiClient.GetAllAsync(CancellationToken.None);
+        _sqlConnectors = _connectors
+            .Where(c => c.Type == ConnectorType.SqlServer || c.Type == ConnectorType.Postgres)
+            .ToList();
+    }
+
+    private void SetSourceType(string type)
+    {
+        _selectedSourceType = type;
+        _errorMessage = "";
+        _successMessage = "";
+        _isConnected = false;
+        _schema = null;
+        _queryResult = null;
+    }
+
+    private void OnManualTypeChanged()
+    {
+        _manualPort = _manualType == ConnectorType.SqlServer ? 1433 : 5432;
+    }
+
+    private void ToggleTables() => _showTables = !_showTables;
+    private void ToggleViews() => _showViews = !_showViews;
+    private void ToggleProcedures() => _showProcedures = !_showProcedures;
+    private void ToggleFunctions() => _showFunctions = !_showFunctions;
+
+    private async Task ConnectDatabase()
+    {
+        _errorMessage = "";
+        _successMessage = "";
+        _isConnecting = true;
+        _isLoadingSchema = true;
+        _schema = null;
+        _isConnected = false;
+        
+        try
+        {
+            GetSchemaRequest request;
+            if (_selectedSourceType == "saved")
+            {
+                if (_selectedConnectorId == Guid.Empty)
+                {
+                    _errorMessage = "Please select a connector.";
+                    _isLoadingSchema = false;
+                    _isConnecting = false;
+                    return;
+                }
+                request = new GetSchemaRequest(_selectedConnectorId, null, null, null, false, null);
+            }
+            else if (_selectedSourceType == "string")
+            {
+                if (string.IsNullOrWhiteSpace(_rawConnectionString))
+                {
+                    _errorMessage = "Connection string is required.";
+                    _isLoadingSchema = false;
+                    _isConnecting = false;
+                    return;
+                }
+                request = new GetSchemaRequest(null, _rawConnectionString, null, _manualType, _saveConnection, _connectionName);
+            }
+            else // manual
+            {
+                var settings = new SqlEditorConnectionSettings(
+                    _manualHost,
+                    _manualPort,
+                    _manualDatabase,
+                    _manualUsername,
+                    _manualPassword,
+                    _manualTrustCert
+                );
+                request = new GetSchemaRequest(null, null, settings, _manualType, _saveConnection, _connectionName);
+            }
+
+            var response = await SqlEditorApiClient.GetSchemaAsync(request, CancellationToken.None);
+            if (response == null)
+            {
+                _errorMessage = "Failed to retrieve schema. Verify database credentials and connection parameters.";
+            }
+            else
+            {
+                _schema = response;
+                _isConnected = true;
+                _successMessage = "Connected successfully! Schema loaded.";
+                
+                // If a manual connection was saved, reload the connectors list
+                if (response.SavedConnector != null)
+                {
+                    await LoadConnectorsAsync();
+                    _selectedConnectorId = response.SavedConnector.Id;
+                    _selectedSourceType = "saved";
+                    _saveConnection = false;
+                    _connectionName = "";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Connection error: {ex.Message}";
+        }
+        finally
+        {
+            _isConnecting = false;
+            _isLoadingSchema = false;
+        }
+    }
+
+    private async Task ExecuteQuery()
+    {
+        if (!_isConnected) return;
+        
+        _errorMessage = "";
+        _successMessage = "";
+        _isExecuting = true;
+        _queryResult = null;
+        
+        try
+        {
+            ExecuteQueryRequest request;
+            if (_selectedSourceType == "saved")
+            {
+                request = new ExecuteQueryRequest(_selectedConnectorId, null, null, null, _queryText, false, null);
+            }
+            else if (_selectedSourceType == "string")
+            {
+                request = new ExecuteQueryRequest(null, _rawConnectionString, null, _manualType, _queryText, false, null);
+            }
+            else // manual
+            {
+                var settings = new SqlEditorConnectionSettings(
+                    _manualHost,
+                    _manualPort,
+                    _manualDatabase,
+                    _manualUsername,
+                    _manualPassword,
+                    _manualTrustCert
+                );
+                request = new ExecuteQueryRequest(null, null, settings, _manualType, _queryText, false, null);
+            }
+
+            var result = await SqlEditorApiClient.ExecuteQueryAsync(request, CancellationToken.None);
+            if (result == null)
+            {
+                _errorMessage = "Failed to run query. Database returned empty or invalid response.";
+            }
+            else
+            {
+                _queryResult = result;
+                if (!string.IsNullOrEmpty(result.ErrorMessage))
+                {
+                    _errorMessage = "Query executed with errors.";
+                }
+                else
+                {
+                    _successMessage = "Query executed successfully.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Execution error: {ex.Message}";
+        }
+        finally
+        {
+            _isExecuting = false;
+        }
+    }
+
+    private void InsertTemplateQuery(string type, string schema, string name)
+    {
+        var currentDbType = _selectedSourceType == "saved" 
+            ? _sqlConnectors.FirstOrDefault(c => c.Id == _selectedConnectorId)?.Type 
+            : _manualType;
+
+        var formattedName = currentDbType == ConnectorType.SqlServer 
+            ? $"[{schema}].[{name}]" 
+            : $"\"{schema}\".\"{name}\"";
+
+        if (type == "table" || type == "view")
+        {
+            _queryText = currentDbType == ConnectorType.SqlServer
+                ? $"SELECT TOP 100 * FROM {formattedName};"
+                : $"SELECT * FROM {formattedName} LIMIT 100;";
+        }
+        else if (type == "proc")
+        {
+            _queryText = currentDbType == ConnectorType.SqlServer
+                ? $"EXEC {formattedName};"
+                : $"CALL {formattedName}();";
+        }
+        else if (type == "func")
+        {
+            _queryText = $"SELECT * FROM {formattedName}();";
+        }
+    }
+}
