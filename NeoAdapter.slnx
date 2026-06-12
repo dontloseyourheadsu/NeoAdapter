@@ -6,11 +6,6 @@
     <Project Path="src/NeoAdapter.Contracts/NeoAdapter.Contracts.csproj" />
     <Project Path="src/NeoAdapter.Domain/NeoAdapter.Domain.csproj" />
   </Folder>
-  <Folder Name="/src/NeoAdapter.Frontend/">
-    <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/NeoAdapter.Frontend.Browser.csproj" />
-    <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend.Desktop/NeoAdapter.Frontend.Desktop.csproj" />
-    <Project Path="src/NeoAdapter.Frontend/NeoAdapter.Frontend/NeoAdapter.Frontend.csproj" />
-  </Folder>
   <Folder Name="/src/NeoAdapter.Frontend.Blazor/">
     <Project Path="src/NeoAdapter.Frontend.BlazorShared/NeoAdapter.Frontend.BlazorShared.csproj" />
     <Project Path="src/NeoAdapter.Frontend.MauiBlazor/NeoAdapter.Frontend.MauiBlazor.csproj" />

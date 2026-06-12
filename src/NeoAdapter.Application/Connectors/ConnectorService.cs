@@ -56,7 +56,10 @@ public sealed class ConnectorService(
 
     public async Task<ConnectorDto> CreateAsync(CreateConnectorRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleCreate, bool roleAdmin, CancellationToken cancellationToken)
     {
-        if (!roleCreate && !roleAdmin)
+        var hasGuestCreatePermission = await dbContext.Set<IntegrationJobGuest>()
+            .AnyAsync(g => g.UserId == userId && g.CanCreateConnectors, cancellationToken);
+
+        if (!roleCreate && !roleAdmin && !hasGuestCreatePermission)
         {
             throw new UnauthorizedAccessException("You do not have permission to create connectors.");
         }

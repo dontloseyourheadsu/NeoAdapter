@@ -323,53 +323,182 @@
                     }
                     else
                     {
-                        <!-- Shared Groups List -->
-                        <div style="margin-top: 16px; margin-bottom: 16px;">
-                            <div class="section-title" style="margin-bottom: 6px;">Shared Groups</div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                                @if (_selectedJob.GroupIds == null || _selectedJob.GroupIds.Count == 0)
-                                {
-                                    <span class="status-pill idle" style="font-size: 10px;">Organization-Wide / Not Shared</span>
-                                }
-                                else
-                                {
-                                    @foreach (var gid in _selectedJob.GroupIds)
-                                    {
-                                        var groupName = _orgGroups.FirstOrDefault(g => g.Id == gid)?.Name ?? "Unknown Group";
-                                        <span class="status-pill running" style="font-size: 10px; background: var(--blue-dim); color: var(--blue);">@groupName</span>
-                                    }
-                                }
-                            </div>
+                        <!-- Sub Tabs -->
+                        <div style="display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 16px;">
+                            <button class="btn-ghost @(_jobSubTab == "details" ? "active" : "")" style="padding: 4px 10px; font-size: 12px; font-weight: 600;" @onclick='() => _jobSubTab = "details"'>
+                                ℹ Details
+                            </button>
+                            <button class="btn-ghost @(_jobSubTab == "access" ? "active" : "")" style="padding: 4px 10px; font-size: 12px; font-weight: 600;" @onclick='() => _jobSubTab = "access"'>
+                                🔒 Access Control
+                            </button>
                         </div>
 
-                        <!-- Runs History -->
-                        <div style="margin-top: 20px;">
-                            <div class="section-title" style="margin-bottom: 8px;">Run Execution History</div>
-                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface);">
-                                @if (_runs == null || _runs.Count == 0)
-                                {
-                                    <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">No runs recorded.</div>
-                                }
-                                else
-                                {
-                                    @foreach (var run in _runs)
+                        @if (_jobSubTab == "details")
+                        {
+                            <!-- Shared Groups List -->
+                            <div style="margin-top: 16px; margin-bottom: 16px;">
+                                <div class="section-title" style="margin-bottom: 6px;">Shared Groups</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                    @if (_selectedJob!.GroupIds == null || _selectedJob!.GroupIds.Count == 0)
                                     {
-                                        var pillClass = run.Status == "Success" ? "status-pill running" : "status-pill failed";
-                                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border);">
-                                            <div style="font-family: var(--font-mono); font-size: 11px;">
-                                                <div>@run.StartedAtUtc.ToLocalTime().ToString("g")</div>
-                                                <div style="color: var(--text-muted); font-size: 10px;">Duration: @(run.FinishedAtUtc.HasValue ? (run.FinishedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "-")</div>
+                                        <span class="status-pill idle" style="font-size: 10px;">Organization-Wide / Not Shared</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var gid in _selectedJob!.GroupIds)
+                                        {
+                                            var groupName = _orgGroups.FirstOrDefault(g => g.Id == gid)?.Name ?? "Unknown Group";
+                                            <span class="status-pill running" style="font-size: 10px; background: var(--blue-dim); color: var(--blue);">@groupName</span>
+                                        }
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- Runs History -->
+                            <div style="margin-top: 20px;">
+                                <div class="section-title" style="margin-bottom: 8px;">Run Execution History</div>
+                                <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface);">
+                                    @if (_runs == null || _runs.Count == 0)
+                                    {
+                                        <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">No runs recorded.</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var run in _runs)
+                                        {
+                                            var pillClass = run.Status == "Success" ? "status-pill running" : "status-pill failed";
+                                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border);">
+                                                <div style="font-family: var(--font-mono); font-size: 11px;">
+                                                    <div>@run.StartedAtUtc.ToLocalTime().ToString("g")</div>
+                                                    <div style="color: var(--text-muted); font-size: 10px;">Duration: @(run.FinishedAtUtc.HasValue ? (run.FinishedAtUtc.Value - run.StartedAtUtc).TotalSeconds.ToString("0.0") + "s" : "-")</div>
+                                                </div>
+                                                <span class="@pillClass">@(run.Status ?? "Running")</span>
                                             </div>
-                                            <span class="@pillClass">@(run.Status ?? "Running")</span>
-                                        </div>
+                                        }
                                     }
+                                </div>
+                            </div>
+
+                            <div style="display: flex; gap: 12px; margin-top: 24px;">
+                                <button class="btn-primary" @onclick="() => RunJobAsync(_selectedJob!)" disabled="@_isBusy">Run Now</button>
+                            </div>
+                        }
+                        else if (_jobSubTab == "access")
+                        {
+                            <!-- Owners List -->
+                            <div style="margin-bottom: 20px;">
+                                <div class="section-title" style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span>Job Owners</span>
+                                </div>
+                                <div style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); padding: 4px 0;">
+                                    @if (_owners == null || _owners.Count == 0)
+                                    {
+                                        <div style="padding: 8px 12px; color: var(--text-muted); font-size: 12px;">No owners found.</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var owner in _owners)
+                                        {
+                                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12px;">
+                                                <div style="display: flex; flex-direction: column;">
+                                                    <span style="font-weight: 600; color: var(--text-secondary);">@owner.Username</span>
+                                                    @if (!string.IsNullOrEmpty(owner.Email))
+                                                    {
+                                                        <span style="color: var(--text-muted); font-size: 10px;">@owner.Email</span>
+                                                    }
+                                                </div>
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    @if (owner.IsCreator)
+                                                    {
+                                                        <span class="status-pill running" style="font-size: 9px; padding: 1px 4px; background: var(--violet-dim); color: var(--violet-300);">Creator</span>
+                                                    }
+                                                    else if (CanManageAccess())
+                                                    {
+                                                        <button class="btn-ghost" style="padding: 2px 6px; font-size: 10px; color: var(--red); border-color: rgba(239, 68, 68, 0.2);" @onclick="() => RemoveOwnerAsync(owner.UserId)">Remove</button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+
+                                @if (CanManageAccess())
+                                {
+                                    <!-- Add Owner Form -->
+                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                        <input type="text" class="form-input" style="flex: 1; padding: 4px 8px; font-size: 12px;" placeholder="Add owner by username..." @bind="_newOwnerUsername" />
+                                        <button class="btn-primary" style="padding: 4px 12px; font-size: 12px;" @onclick="AddOwnerAsync" disabled="@_isBusy">Add</button>
+                                    </div>
                                 }
                             </div>
-                        </div>
 
-                        <div style="display: flex; gap: 12px; margin-top: 24px;">
-                            <button class="btn-primary" @onclick="() => RunJobAsync(_selectedJob!)" disabled="@_isBusy">Run Now</button>
-                        </div>
+                            <!-- Guests List -->
+                            <div>
+                                <div class="section-title" style="margin-bottom: 8px;">Invited Guests</div>
+                                <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); padding: 4px 0; margin-bottom: 12px;">
+                                    @if (_guests == null || _guests.Count == 0)
+                                    {
+                                        <div style="padding: 8px 12px; color: var(--text-muted); font-size: 12px;">No guests invited yet.</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var guest in _guests)
+                                        {
+                                            <div style="padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; flex-direction: column; gap: 6px;">
+                                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                    <span style="font-weight: 600; color: var(--text-secondary);">@guest.Username</span>
+                                                    @if (CanManageAccess())
+                                                    {
+                                                        <button class="btn-ghost" style="padding: 1px 5px; font-size: 9px; color: var(--red); border-color: rgba(239, 68, 68, 0.2);" @onclick="() => RemoveGuestAsync(guest.UserId)">Remove</button>
+                                                    }
+                                                </div>
+                                                <!-- Permission Toggles -->
+                                                <div style="display: flex; gap: 12px; font-size: 10px; color: var(--text-muted);">
+                                                    <label style="display: flex; align-items: center; gap: 4px;">
+                                                        <input type="checkbox" checked="@guest.CanRead" disabled="@(!CanManageAccess())" @onchange="@(e => ToggleGuestPermissionAsync(guest, "read", e.Value))" />
+                                                        Read
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 4px;">
+                                                        <input type="checkbox" checked="@guest.CanEdit" disabled="@(!CanManageAccess())" @onchange="@(e => ToggleGuestPermissionAsync(guest, "edit", e.Value))" />
+                                                        Edit
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 4px;">
+                                                        <input type="checkbox" checked="@guest.CanCreateConnectors" disabled="@(!CanManageAccess())" @onchange="@(e => ToggleGuestPermissionAsync(guest, "create_connectors", e.Value))" />
+                                                        Connectors
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+
+                                @if (CanManageAccess())
+                                {
+                                    <!-- Invite Guest Form -->
+                                    <div style="border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: rgba(255, 255, 255, 0.02);">
+                                        <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">Invite a New Guest</div>
+                                        <div class="form-group" style="margin-bottom: 8px;">
+                                            <input type="text" class="form-input" style="padding: 4px 8px; font-size: 12px;" placeholder="Username..." @bind="_newGuestUsername" />
+                                        </div>
+                                        <div style="display: flex; gap: 12px; font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">
+                                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                                <input type="checkbox" @bind="_newGuestCanRead" />
+                                                Read
+                                            </label>
+                                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                                <input type="checkbox" @bind="_newGuestCanEdit" />
+                                                Edit
+                                            </label>
+                                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                                <input type="checkbox" @bind="_newGuestCanCreateConnectors" />
+                                                Connectors
+                                            </label>
+                                        </div>
+                                        <button class="btn-primary" style="width: 100%; padding: 4px 12px; font-size: 12px;" @onclick="InviteGuestAsync" disabled="@_isBusy">Invite Guest</button>
+                                    </div>
+                                }
+                            </div>
+                        }
                     }
                 }
                 else
@@ -396,6 +525,16 @@
 
     private ConnectorDto? _selectedConnector;
     private IntegrationJobDto? _selectedJob;
+
+    private IReadOnlyList<IntegrationJobOwnerDto> _owners = [];
+    private IReadOnlyList<IntegrationJobGuestDto> _guests = [];
+    private string _jobSubTab = "details";
+
+    private string _newOwnerUsername = "";
+    private string _newGuestUsername = "";
+    private bool _newGuestCanRead = true;
+    private bool _newGuestCanEdit = false;
+    private bool _newGuestCanCreateConnectors = false;
 
     private bool _isEditingConnector = false;
     private bool _isEditingJob = false;
@@ -607,6 +746,8 @@
         _jobSourceId = "";
         _jobDestinationId = "";
         _selectedGroupIds = new List<Guid>();
+        _owners = [];
+        _guests = [];
         _isEditingJob = true;
         ClearBanners();
     }
@@ -620,15 +761,177 @@
         _selectedGroupIds = job.GroupIds?.ToList() ?? new List<Guid>();
         _isEditingJob = false;
         _runs = [];
+        _owners = [];
+        _guests = [];
+        _jobSubTab = "details";
         ClearBanners();
 
         try
         {
             _runs = await JobsApiClient.GetRunsAsync(job.Id, CancellationToken.None);
+            _owners = await JobsApiClient.GetOwnersAsync(job.Id, CancellationToken.None);
+            _guests = await JobsApiClient.GetGuestsAsync(job.Id, CancellationToken.None);
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Failed to load run history: {ex.Message}";
+            _errorMessage = $"Failed to load job details: {ex.Message}";
+        }
+    }
+
+    private bool CanManageAccess()
+    {
+        if (AppState.IsAdmin) return true;
+        return _owners.Any(o => o.Username == AppState.CurrentUsername);
+    }
+
+    private async Task AddOwnerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newOwnerUsername) || _selectedJob == null) return;
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var success = await JobsApiClient.AddOwnerAsync(_selectedJob.Id, new AddOwnerRequest(_newOwnerUsername), CancellationToken.None);
+            if (success)
+            {
+                _successMessage = $"Successfully added '{_newOwnerUsername}' as owner.";
+                _newOwnerUsername = "";
+                _owners = await JobsApiClient.GetOwnersAsync(_selectedJob.Id, CancellationToken.None);
+            }
+            else
+            {
+                _errorMessage = "Failed to add owner. Verify the user exists and you have owner permissions.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error adding owner: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task RemoveOwnerAsync(Guid ownerUserId)
+    {
+        if (_selectedJob == null) return;
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var success = await JobsApiClient.RemoveOwnerAsync(_selectedJob.Id, ownerUserId, CancellationToken.None);
+            if (success)
+            {
+                _successMessage = "Owner removed successfully.";
+                _owners = await JobsApiClient.GetOwnersAsync(_selectedJob.Id, CancellationToken.None);
+            }
+            else
+            {
+                _errorMessage = "Failed to remove owner.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error removing owner: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task InviteGuestAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newGuestUsername) || _selectedJob == null) return;
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var success = await JobsApiClient.InviteGuestAsync(
+                _selectedJob.Id, 
+                new InviteGuestRequest(_newGuestUsername, _newGuestCanRead, _newGuestCanEdit, _newGuestCanCreateConnectors), 
+                CancellationToken.None);
+            if (success)
+            {
+                _successMessage = $"Successfully invited guest '{_newGuestUsername}'.";
+                _newGuestUsername = "";
+                _newGuestCanRead = true;
+                _newGuestCanEdit = false;
+                _newGuestCanCreateConnectors = false;
+                _guests = await JobsApiClient.GetGuestsAsync(_selectedJob.Id, CancellationToken.None);
+            }
+            else
+            {
+                _errorMessage = "Failed to invite guest. Verify the user exists and you have owner permissions.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error inviting guest: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task RemoveGuestAsync(Guid guestUserId)
+    {
+        if (_selectedJob == null) return;
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var success = await JobsApiClient.RemoveGuestAsync(_selectedJob.Id, guestUserId, CancellationToken.None);
+            if (success)
+            {
+                _successMessage = "Guest removed successfully.";
+                _guests = await JobsApiClient.GetGuestsAsync(_selectedJob.Id, CancellationToken.None);
+            }
+            else
+            {
+                _errorMessage = "Failed to remove guest.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error removing guest: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ToggleGuestPermissionAsync(IntegrationJobGuestDto guest, string permissionType, object? checkedValue)
+    {
+        if (_selectedJob == null || checkedValue is not bool isChecked) return;
+        ClearBanners();
+        
+        bool canRead = permissionType == "read" ? isChecked : guest.CanRead;
+        bool canEdit = permissionType == "edit" ? isChecked : guest.CanEdit;
+        bool canCreateConnectors = permissionType == "create_connectors" ? isChecked : guest.CanCreateConnectors;
+
+        try
+        {
+            var success = await JobsApiClient.UpdateGuestPermissionsAsync(
+                _selectedJob.Id, 
+                guest.UserId, 
+                new UpdateGuestPermissionsRequest(canRead, canEdit, canCreateConnectors), 
+                CancellationToken.None);
+            if (success)
+            {
+                _guests = await JobsApiClient.GetGuestsAsync(_selectedJob.Id, CancellationToken.None);
+            }
+            else
+            {
+                _errorMessage = "Failed to update guest permissions.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error updating guest permissions: {ex.Message}";
         }
     }
 

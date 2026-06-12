@@ -17,4 +17,18 @@ public interface IIntegrationJobService
     Task<IReadOnlyList<IntegrationJobRunDto>> GetJobRunsAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken);
 
     Task<JobLogsResponse> GetJobLogsAsync(Guid jobId, Guid? runId, DateTimeOffset? cursor, int limit, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<IntegrationJobGuestDto>> GetGuestsAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task InviteGuestAsync(Guid jobId, InviteGuestRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task UpdateGuestPermissionsAsync(Guid jobId, Guid guestUserId, UpdateGuestPermissionsRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task RemoveGuestAsync(Guid jobId, Guid guestUserId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<IntegrationJobOwnerDto>> GetOwnersAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task AddOwnerAsync(Guid jobId, AddOwnerRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task RemoveOwnerAsync(Guid jobId, Guid ownerUserId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
 }

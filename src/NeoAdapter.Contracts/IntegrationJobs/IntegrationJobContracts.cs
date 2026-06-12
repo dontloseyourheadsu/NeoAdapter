@@ -79,3 +79,31 @@ public sealed record JobLogDto(
 public sealed record JobLogsResponse(
     IReadOnlyList<JobLogDto> Logs,
     DateTimeOffset? NextCursor);
+
+public sealed record IntegrationJobGuestDto(
+    Guid UserId,
+    string Username,
+    string? Email,
+    bool CanRead,
+    bool CanEdit,
+    bool CanCreateConnectors);
+
+public sealed record InviteGuestRequest(
+    string Username,
+    bool CanRead,
+    bool CanEdit,
+    bool CanCreateConnectors);
+
+public sealed record UpdateGuestPermissionsRequest(
+    bool CanRead,
+    bool CanEdit,
+    bool CanCreateConnectors);
+
+public sealed record IntegrationJobOwnerDto(
+    Guid UserId,
+    string Username,
+    string? Email,
+    bool IsCreator);
+
+public sealed record AddOwnerRequest(
+    string Username);

@@ -284,6 +284,41 @@ using (var scope = app.Services.CreateScope())
             );
         ");
 
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS creator_user_id uuid REFERENCES user_accounts(id) ON DELETE SET NULL;"); } catch {}
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_job_owners (
+                integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
+                user_account_id uuid NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                PRIMARY KEY (integration_job_id, user_account_id)
+            );
+        ");
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            INSERT INTO integration_job_owners (integration_job_id, user_account_id)
+            SELECT id, owner_user_id
+            FROM integration_jobs
+            WHERE owner_user_id IS NOT NULL
+            ON CONFLICT DO NOTHING;
+        ");
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            UPDATE integration_jobs
+            SET creator_user_id = owner_user_id
+            WHERE creator_user_id IS NULL AND owner_user_id IS NOT NULL;
+        ");
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_job_guests (
+                integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
+                user_id uuid NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                can_read boolean NOT NULL DEFAULT true,
+                can_edit boolean NOT NULL DEFAULT false,
+                can_create_connectors boolean NOT NULL DEFAULT false,
+                PRIMARY KEY (integration_job_id, user_id)
+            );
+        ");
+
         await dbContext.Database.ExecuteSqlRawAsync(@"
             DO $$ 
             DECLARE 

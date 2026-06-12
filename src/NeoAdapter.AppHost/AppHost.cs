@@ -12,9 +12,8 @@ var api = builder
     .WaitFor(neoAdapterDatabase);
 
 builder
-    .AddProject("frontend-browser", "../NeoAdapter.Frontend/NeoAdapter.Frontend.Browser/NeoAdapter.Frontend.Browser.csproj")
+    .AddProject("frontend-web", "../NeoAdapter.Frontend.WebBlazor/NeoAdapter.Frontend.WebBlazor.csproj")
     .WithReference(api)
-    .WaitFor(api)
-    .WithEnvironment("NEOADAPTER_API_BASE_URL", api.GetEndpoint("http"));
+    .WaitFor(api);
 
 builder.Build().Run();

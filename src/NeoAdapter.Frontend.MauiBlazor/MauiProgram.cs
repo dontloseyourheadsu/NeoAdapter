@@ -38,7 +38,7 @@ public static class MauiProgram
 		builder.Services.AddScoped<OrgAdminApiClient>();
 
 		// Register state and token storage
-		builder.Services.AddSingleton<AppState>();
+		builder.Services.AddScoped<AppState>();
 		builder.Services.AddScoped<ITokenStorage, MauiTokenStorage>();
 		builder.Services.AddScoped<IOAuthHelper, MauiOAuthHelper>();
 

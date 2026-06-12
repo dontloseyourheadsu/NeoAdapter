@@ -30,11 +30,11 @@ public static class NeoAdapterSeedData
         }
 
         // 2. Ensure Admin User exists
-        var adminExists = await dbContext.UserAccounts.AnyAsync(u => u.Username.ToLower() == "admin", cancellationToken);
-        if (!adminExists)
+        var admin = await dbContext.UserAccounts.FirstOrDefaultAsync(u => u.Username.ToLower() == "admin", cancellationToken);
+        if (admin == null)
         {
             var salt = Guid.NewGuid().ToString();
-            var admin = new UserAccount
+            admin = new UserAccount
             {
                 Id = Guid.NewGuid(),
                 Username = "admin",
@@ -124,9 +124,11 @@ public static class NeoAdapterSeedData
                 OwnerOrganizationId = org.Id,
                 IsEnabled = true,
                 CronExpression = null,
+                CreatorUserId = admin.Id,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };
+            sqlToCsvJob.Owners.Add(admin);
 
             var csvToSqlJob = new IntegrationJob
             {
@@ -135,9 +137,11 @@ public static class NeoAdapterSeedData
                 OwnerOrganizationId = org.Id,
                 IsEnabled = true,
                 CronExpression = null,
+                CreatorUserId = admin.Id,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             };
+            csvToSqlJob.Owners.Add(admin);
 
             dbContext.IntegrationJobs.AddRange(sqlToCsvJob, csvToSqlJob);
 

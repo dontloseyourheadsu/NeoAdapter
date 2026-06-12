@@ -11,6 +11,8 @@ public sealed class NeoAdapterDbContext(DbContextOptions<NeoAdapterDbContext> op
 
     public DbSet<IntegrationJob> IntegrationJobs => Set<IntegrationJob>();
 
+    public DbSet<IntegrationJobGuest> IntegrationJobGuests => Set<IntegrationJobGuest>();
+
     public DbSet<IntegrationJobRun> IntegrationJobRuns => Set<IntegrationJobRun>();
 
     public DbSet<IntegrationJobLogEntry> IntegrationJobLogs => Set<IntegrationJobLogEntry>();

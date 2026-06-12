@@ -12,6 +12,8 @@ public sealed class IntegrationJob
 
     public Guid? OwnerOrganizationId { get; set; }
 
+    public Guid? CreatorUserId { get; set; }
+
     public bool IsEnabled { get; set; }
 
     public string? CronExpression { get; set; }
@@ -23,5 +25,9 @@ public sealed class IntegrationJob
     public ICollection<IntegrationJobStep> Steps { get; set; } = new List<IntegrationJobStep>();
 
     public ICollection<Group> Groups { get; set; } = new List<Group>();
+
+    public ICollection<UserAccount> Owners { get; set; } = new List<UserAccount>();
+
+    public ICollection<IntegrationJobGuest> Guests { get; set; } = new List<IntegrationJobGuest>();
 }
 
