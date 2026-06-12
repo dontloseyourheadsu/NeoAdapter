@@ -136,4 +136,16 @@ public sealed class IntegrationJobsApiClient(HttpClient httpClient)
         var response = await httpClient.DeleteAsync($"api/integration-jobs/{jobId}/owners/{userId}", cancellationToken);
         return response.IsSuccessStatusCode;
     }
+
+    public async Task<bool> UnlockAsync(Guid jobId, string password, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.PostAsJsonAsync($"api/integration-jobs/{jobId}/unlock", new UnlockJobRequest(password), cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> UpdatePasswordAsync(Guid jobId, string? password, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.PutAsJsonAsync($"api/integration-jobs/{jobId}/password", new UpdateJobPasswordRequest(password), cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
 }

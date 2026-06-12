@@ -318,6 +318,48 @@ public sealed class IntegrationJobsController(IIntegrationJobService integration
         }
     }
 
+    [HttpPost("{id:guid}/unlock")]
+    public async Task<IActionResult> Unlock(Guid id, [FromBody] UnlockJobRequest request, CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+
+        try
+        {
+            var success = await integrationJobService.UnlockAsync(id, request.Password, user.Id, cancellationToken);
+            if (!success)
+            {
+                return BadRequest("Invalid password.");
+            }
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
+    [HttpPut("{id:guid}/password")]
+    public async Task<IActionResult> UpdatePassword(Guid id, [FromBody] UpdateJobPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+
+        try
+        {
+            await integrationJobService.UpdatePasswordAsync(id, request.Password, user.Id, user.OrganizationId, user.GroupId, user.Role, user.RoleEdit, user.RoleAdmin, cancellationToken);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, ex.Message);
+        }
+    }
+
     private async Task<UserAccount?> GetCurrentUserAsync(CancellationToken cancellationToken)
     {
         var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 

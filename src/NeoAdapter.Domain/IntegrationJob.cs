@@ -29,5 +29,11 @@ public sealed class IntegrationJob
     public ICollection<UserAccount> Owners { get; set; } = new List<UserAccount>();
 
     public ICollection<IntegrationJobGuest> Guests { get; set; } = new List<IntegrationJobGuest>();
+
+    public string? PasswordHash { get; set; }
+
+    public string? PasswordSalt { get; set; }
+
+    public ICollection<IntegrationJobPasswordUnlock> PasswordUnlocks { get; set; } = new List<IntegrationJobPasswordUnlock>();
 }
 

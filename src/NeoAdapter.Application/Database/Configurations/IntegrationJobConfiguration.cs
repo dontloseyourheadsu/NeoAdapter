@@ -98,5 +98,18 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
                     je.Property<Guid>("user_account_id").HasColumnName("user_account_id");
                     je.HasKey("integration_job_id", "user_account_id");
                 });
+
+        builder.Property(job => job.PasswordHash)
+            .HasColumnName("password_hash")
+            .HasMaxLength(255);
+
+        builder.Property(job => job.PasswordSalt)
+            .HasColumnName("password_salt")
+            .HasMaxLength(255);
+
+        builder.HasMany(job => job.PasswordUnlocks)
+            .WithOne(u => u.IntegrationJob)
+            .HasForeignKey(u => u.IntegrationJobId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

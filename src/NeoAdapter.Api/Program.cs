@@ -319,6 +319,18 @@ using (var scope = app.Services.CreateScope())
             );
         ");
 
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS password_hash character varying(255);"); } catch {}
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE integration_jobs ADD COLUMN IF NOT EXISTS password_salt character varying(255);"); } catch {}
+
+        await dbContext.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS integration_job_password_unlocks (
+                integration_job_id uuid NOT NULL REFERENCES integration_jobs(id) ON DELETE CASCADE,
+                user_id uuid NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                unlocked_at_utc timestamp with time zone NOT NULL,
+                PRIMARY KEY (integration_job_id, user_id)
+            );
+        ");
+
         await dbContext.Database.ExecuteSqlRawAsync(@"
             DO $$ 
             DECLARE 
