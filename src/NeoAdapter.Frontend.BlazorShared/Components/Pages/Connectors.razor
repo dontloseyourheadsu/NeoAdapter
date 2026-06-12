@@ -97,11 +97,22 @@
                             <div class="job-item @(isSelected ? "active" : "")" @onclick="() => SelectJob(job)" style="cursor: pointer;">
                                 <div class="job-item-icon violet">⬡</div>
                                 <div class="job-item-info">
-                                    <div class="job-item-name">@job.Name</div>
+                                    <div class="job-item-name">
+                                        @job.Name
+                                        @if (job.IsPasswordProtected)
+                                        {
+                                            <span style="margin-left: 6px; font-size: 11px;" title="@(job.IsUnlocked ? "Unlocked" : "Locked")">
+                                                @(job.IsUnlocked ? "🔓" : "🔒")
+                                            </span>
+                                        }
+                                    </div>
                                     <div class="job-item-meta">CRON: @job.CronExpression | Enabled: @job.IsEnabled</div>
                                 </div>
                                 <div style="display: flex; gap: 8px;" @onclick:stopPropagation="true">
-                                    <button class="btn-ghost" style="padding: 2px 8px; font-size: 10px;" @onclick="() => RunJobAsync(job)">Run Now</button>
+                                    @if (!job.IsPasswordProtected || job.IsUnlocked)
+                                    {
+                                        <button class="btn-ghost" style="padding: 2px 8px; font-size: 10px;" @onclick="() => RunJobAsync(job)">Run Now</button>
+                                    }
                                 </div>
                             </div>
                         }
@@ -274,6 +285,14 @@
                     @if (_isEditingJob)
                     {
                         <div class="form-group">
+                            <label class="form-label">Job Password (Optional)</label>
+                            <input type="password" class="form-input" @bind="_jobPassword" placeholder="Enter password to restrict access" />
+                        </div>
+                    }
+
+                    @if (_isEditingJob)
+                    {
+                        <div class="form-group">
                             <label class="form-label">Source Connector</label>
                             <select class="form-input" @bind="_jobSourceId">
                                 <option value="">-- Select Source --</option>
@@ -319,6 +338,21 @@
                         <div style="display: flex; gap: 12px; margin-top: 24px;">
                             <button class="btn-ghost" @onclick="() => _isEditingJob = false">Cancel</button>
                             <button class="btn-primary" @onclick="SaveJobAsync" disabled="@_isBusy" style="margin-left: auto;">Save Workflow</button>
+                        </div>
+                    }
+                    else if (_selectedJob.IsPasswordProtected && !_selectedJob.IsUnlocked)
+                    {
+                        <!-- Password Locked Screen -->
+                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); text-align: center; margin-top: 20px;">
+                            <span style="font-size: 36px; margin-bottom: 16px;">🔒</span>
+                            <h4 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: var(--violet-300);">This Job is Password Protected</h4>
+                            <p style="margin: 0 0 20px 0; font-size: 13px; color: var(--text-muted); max-width: 320px;">
+                                You can see this job in the list, but you need to enter the password to view its contents, steps, logs, and run history.
+                            </p>
+                            <div class="form-group" style="width: 100%; max-width: 280px; margin-bottom: 16px;">
+                                <input type="password" class="form-input" @bind="_unlockPassword" placeholder="Enter password..." @onkeyup="HandleUnlockKeyup" style="text-align: center;" />
+                            </div>
+                            <button class="btn-primary" style="width: 100%; max-width: 280px;" @onclick="UnlockJobAsync" disabled="@_isBusy">Unlock Workflow</button>
                         </div>
                     }
                     else
@@ -498,6 +532,22 @@
                                     </div>
                                 }
                             </div>
+
+                            @if (IsCreator())
+                            {
+                                <div style="margin-top: 24px; padding-top: 20px; border-top: 1px dashed var(--border);">
+                                    <div class="section-title" style="margin-bottom: 8px;">Job Password Security</div>
+                                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                                        Setting or changing a password will reset all permissions (removing all invited guests and existing password unlocks). Leave empty to remove password protection.
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <input type="password" class="form-input" style="flex: 1; padding: 4px 8px; font-size: 12px;" placeholder="New password (optional)..." @bind="_changePasswordInput" />
+                                        <button class="btn-primary" style="padding: 4px 12px; font-size: 12px; background: var(--amber-600); border-color: var(--amber-600);" @onclick="UpdatePasswordAsync" disabled="@_isBusy">
+                                            Update Password
+                                        </button>
+                                    </div>
+                                </div>
+                            }
                         }
                     }
                 }
@@ -568,6 +618,9 @@
     private bool _jobEnabled = true;
     private string _jobSourceId = "";
     private string _jobDestinationId = "";
+    private string _jobPassword = "";
+    private string _unlockPassword = "";
+    private string _changePasswordInput = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -749,6 +802,7 @@
         _owners = [];
         _guests = [];
         _isEditingJob = true;
+        _jobPassword = "";
         ClearBanners();
     }
 
@@ -766,15 +820,18 @@
         _jobSubTab = "details";
         ClearBanners();
 
-        try
+        if (job.IsUnlocked)
         {
-            _runs = await JobsApiClient.GetRunsAsync(job.Id, CancellationToken.None);
-            _owners = await JobsApiClient.GetOwnersAsync(job.Id, CancellationToken.None);
-            _guests = await JobsApiClient.GetGuestsAsync(job.Id, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Failed to load job details: {ex.Message}";
+            try
+            {
+                _runs = await JobsApiClient.GetRunsAsync(job.Id, CancellationToken.None);
+                _owners = await JobsApiClient.GetOwnersAsync(job.Id, CancellationToken.None);
+                _guests = await JobsApiClient.GetGuestsAsync(job.Id, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _errorMessage = $"Failed to load job details: {ex.Message}";
+            }
         }
     }
 
@@ -834,6 +891,88 @@
         catch (Exception ex)
         {
             _errorMessage = $"Error removing owner: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private bool IsCreator()
+    {
+        return _owners.Any(o => o.IsCreator && o.Username == AppState.CurrentUsername);
+    }
+
+    private async Task HandleUnlockKeyup(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await UnlockJobAsync();
+        }
+    }
+
+    private async Task UnlockJobAsync()
+    {
+        if (_selectedJob == null || string.IsNullOrEmpty(_unlockPassword)) return;
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var success = await JobsApiClient.UnlockAsync(_selectedJob.Id, _unlockPassword, CancellationToken.None);
+            if (success)
+            {
+                _successMessage = "Job unlocked successfully.";
+                _unlockPassword = "";
+                await LoadListsAsync();
+                var updatedJob = _jobs.FirstOrDefault(j => j.Id == _selectedJob.Id);
+                if (updatedJob != null)
+                {
+                    await SelectJob(updatedJob);
+                }
+            }
+            else
+            {
+                _errorMessage = "Incorrect password.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Unlock error: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task UpdatePasswordAsync()
+    {
+        if (_selectedJob == null) return;
+        ClearBanners();
+        _isBusy = true;
+        try
+        {
+            var passwordValue = string.IsNullOrWhiteSpace(_changePasswordInput) ? null : _changePasswordInput;
+            var success = await JobsApiClient.UpdatePasswordAsync(_selectedJob.Id, passwordValue, CancellationToken.None);
+            if (success)
+            {
+                _successMessage = passwordValue == null ? "Password removed and permissions reset." : "Password updated and permissions reset.";
+                _changePasswordInput = "";
+                await LoadListsAsync();
+                var updatedJob = _jobs.FirstOrDefault(j => j.Id == _selectedJob.Id);
+                if (updatedJob != null)
+                {
+                    await SelectJob(updatedJob);
+                }
+            }
+            else
+            {
+                _errorMessage = "Failed to update password. Only the job creator can set or change the password.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Password update error: {ex.Message}";
         }
         finally
         {
@@ -986,7 +1125,8 @@
                 OwnerUserId: null,
                 OwnerGroupId: null,
                 OwnerOrganizationId: null,
-                GroupIds: _selectedGroupIds
+                GroupIds: _selectedGroupIds,
+                Password: !string.IsNullOrEmpty(_jobPassword) ? _jobPassword : null
             );
 
             var result = await JobsApiClient.CreateAsync(req, CancellationToken.None);

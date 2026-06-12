@@ -37,6 +37,29 @@ public class SftpConnectorTests : IAsyncLifetime
         
         _tempLocalDir = Path.Combine(Path.GetTempPath(), $"neoadapter_test_{Guid.NewGuid()}");
         Directory.CreateDirectory(_tempLocalDir);
+
+        // Wait for SFTP server to be fully ready
+        var port = _sftpContainer.GetMappedPublicPort(22);
+        var host = _sftpContainer.Hostname;
+        int maxRetries = 20;
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                using var client = new SftpClient(host, port, "foo", "pass");
+                client.Connect();
+                if (client.IsConnected)
+                {
+                    client.Disconnect();
+                    break;
+                }
+            }
+            catch
+            {
+                if (i == maxRetries - 1) throw;
+                await Task.Delay(500);
+            }
+        }
     }
 
     public async Task DisposeAsync()

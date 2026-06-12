@@ -21,7 +21,9 @@ public sealed record IntegrationJobDto(
     DateTimeOffset? LastRunAtUtc,
     string? LastRunStatus,
     string? LastRunMessage,
-    IReadOnlyList<Guid>? GroupIds = null);
+    IReadOnlyList<Guid>? GroupIds = null,
+    bool IsPasswordProtected = false,
+    bool IsUnlocked = true);
 
 public sealed record CreateIntegrationJobStepRequest(
     int OrderIndex,
@@ -47,7 +49,12 @@ public sealed record CreateIntegrationJobRequest(
     Guid? OwnerUserId = null,
     Guid? OwnerGroupId = null,
     Guid? OwnerOrganizationId = null,
-    IReadOnlyList<Guid>? GroupIds = null);
+    IReadOnlyList<Guid>? GroupIds = null,
+    string? Password = null);
+
+public sealed record UnlockJobRequest(string Password);
+
+public sealed record UpdateJobPasswordRequest(string? Password);
 
 public sealed record RunIntegrationJobRequest(Guid IntegrationJobId);
 

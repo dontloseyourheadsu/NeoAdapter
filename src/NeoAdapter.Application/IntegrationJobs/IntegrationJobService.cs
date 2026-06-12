@@ -14,7 +14,8 @@ public sealed class IntegrationJobService(
     NeoAdapterDbContext dbContext,
     IBackgroundJobClient backgroundJobClient,
     IIntegrationJobScheduler integrationJobScheduler,
-    IConnectorService connectorService) : IIntegrationJobService
+    IConnectorService connectorService,
+    NeoAdapter.Application.Security.IPasswordHasher passwordHasher) : IIntegrationJobService
 {
     public async Task<IReadOnlyList<IntegrationJobDto>> GetAllAsync(Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
@@ -29,7 +30,8 @@ public sealed class IntegrationJobService(
                 .ThenInclude(step => step.SourceConnector)
             .Include(job => job.Steps)
                 .ThenInclude(step => step.DestinationConnector)
-            .Include(job => job.Groups);
+            .Include(job => job.Groups)
+            .Include(job => job.Owners);
 
         if (roleAdmin || role == "Admin")
         {
@@ -66,7 +68,13 @@ public sealed class IntegrationJobService(
             .GroupBy(run => run.IntegrationJobId)
             .ToDictionary(g => g.Key, g => g.First());
 
-        return jobs.Select(job => MapToDto(job, latestRunsMap.GetValueOrDefault(job.Id))).ToArray();
+        var unlockedJobIds = await dbContext.IntegrationJobPasswordUnlocks
+            .Where(u => u.UserId == userId)
+            .Select(u => u.IntegrationJobId)
+            .ToListAsync(cancellationToken);
+        var unlockedSet = new HashSet<Guid>(unlockedJobIds);
+
+        return jobs.Select(job => MapToDto(job, latestRunsMap.GetValueOrDefault(job.Id), userId, roleAdmin, unlockedSet)).ToArray();
     }
 
     public async Task<IntegrationJobDto> CreateAsync(CreateIntegrationJobRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleCreate, bool roleAdmin, CancellationToken cancellationToken)
@@ -124,6 +132,13 @@ public sealed class IntegrationJobService(
             UpdatedAtUtc = now,
             CreatorUserId = userId
         };
+
+        if (!string.IsNullOrWhiteSpace(request.Password))
+        {
+            var (hash, salt) = passwordHasher.HashPassword(request.Password);
+            job.PasswordHash = hash;
+            job.PasswordSalt = salt;
+        }
 
         var creatorUser = await dbContext.UserAccounts.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
         if (creatorUser != null)
@@ -205,7 +220,7 @@ public sealed class IntegrationJobService(
             .Include(j => j.Groups)
             .FirstAsync(j => j.Id == job.Id, cancellationToken);
 
-        return MapToDto(savedJob, null);
+        return MapToDto(savedJob, null, userId, roleAdmin, new HashSet<Guid>());
     }
 
     public async Task<EnqueueIntegrationJobResponse> EnqueueRunAsync(Guid integrationJobId, string startedBy, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
@@ -309,6 +324,32 @@ public sealed class IntegrationJobService(
         return new JobLogsResponse(logs, nextCursor);
     }
 
+    private async Task VerifyPasswordUnlockAsync(Guid jobId, Guid userId, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        var job = await dbContext.IntegrationJobs
+            .AsNoTracking()
+            .Include(j => j.Owners)
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);
+        if (job == null) return;
+
+        if (string.IsNullOrEmpty(job.PasswordHash))
+        {
+            return;
+        }
+
+        if (roleAdmin || job.CreatorUserId == userId || job.Owners.Any(o => o.Id == userId))
+        {
+            return;
+        }
+
+        var isUnlocked = await dbContext.IntegrationJobPasswordUnlocks
+            .AnyAsync(u => u.IntegrationJobId == jobId && u.UserId == userId, cancellationToken);
+        if (!isUnlocked)
+        {
+            throw new UnauthorizedAccessException("Job is locked. Password required.");
+        }
+    }
+
     private async Task EnsureJobAccessAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
         var hasGuestReadPermission = await dbContext.IntegrationJobGuests
@@ -347,6 +388,8 @@ public sealed class IntegrationJobService(
         {
             throw new UnauthorizedAccessException("You do not have access to this integration job.");
         }
+
+        await VerifyPasswordUnlockAsync(jobId, userId, roleAdmin, cancellationToken);
     }
 
     private async Task EnsureJobAccessForWriteAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
@@ -387,20 +430,31 @@ public sealed class IntegrationJobService(
         {
             throw new UnauthorizedAccessException("You do not have access to this integration job.");
         }
+
+        await VerifyPasswordUnlockAsync(jobId, userId, roleAdmin, cancellationToken);
     }
 
-    private static IntegrationJobDto MapToDto(IntegrationJob job, IntegrationJobRun? latestRun)
+    private static IntegrationJobDto MapToDto(IntegrationJob job, IntegrationJobRun? latestRun, Guid userId, bool roleAdmin, HashSet<Guid> unlockedSet)
     {
-        var steps = job.Steps
-            .OrderBy(s => s.OrderIndex)
-            .Select(s => new IntegrationJobStepDto(
-                s.Id,
-                s.OrderIndex,
-                s.SourceConnectorId,
-                s.DestinationConnectorId,
-                s.SourceConnector?.Name ?? "Unknown source",
-                s.DestinationConnector?.Name ?? "Unknown destination"))
-            .ToList();
+        bool isPasswordProtected = !string.IsNullOrEmpty(job.PasswordHash);
+        bool isUnlocked = !isPasswordProtected || 
+                          roleAdmin || 
+                          job.CreatorUserId == userId || 
+                          job.Owners.Any(o => o.Id == userId) || 
+                          unlockedSet.Contains(job.Id);
+
+        var steps = isUnlocked 
+            ? job.Steps
+                .OrderBy(s => s.OrderIndex)
+                .Select(s => new IntegrationJobStepDto(
+                    s.Id,
+                    s.OrderIndex,
+                    s.SourceConnectorId,
+                    s.DestinationConnectorId,
+                    s.SourceConnector?.Name ?? "Unknown source",
+                    s.DestinationConnector?.Name ?? "Unknown destination"))
+                .ToList()
+            : new List<IntegrationJobStepDto>();
 
         var groupIds = job.Groups?.Select(g => g.Id).ToList() ?? new List<Guid>();
 
@@ -415,7 +469,9 @@ public sealed class IntegrationJobService(
             latestRun?.StartedAtUtc,
             latestRun?.Status,
             latestRun?.Message,
-            groupIds);
+            groupIds,
+            isPasswordProtected,
+            isUnlocked);
     }
 
     private async Task<bool> IsOwnerAsync(Guid jobId, Guid userId, CancellationToken cancellationToken)
@@ -635,6 +691,84 @@ public sealed class IntegrationJobService(
         {
             job.OwnerUserId = job.CreatorUserId;
         }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> UnlockAsync(Guid jobId, string password, Guid userId, CancellationToken cancellationToken)
+    {
+        var job = await dbContext.IntegrationJobs
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);
+        if (job == null)
+        {
+            throw new KeyNotFoundException("Integration job not found.");
+        }
+
+        if (string.IsNullOrEmpty(job.PasswordHash))
+        {
+            return true;
+        }
+
+        var isValid = passwordHasher.Verify(password, job.PasswordHash, job.PasswordSalt ?? string.Empty);
+        if (!isValid)
+        {
+            return false;
+        }
+
+        var existing = await dbContext.IntegrationJobPasswordUnlocks
+            .FirstOrDefaultAsync(u => u.IntegrationJobId == jobId && u.UserId == userId, cancellationToken);
+        if (existing == null)
+        {
+            dbContext.IntegrationJobPasswordUnlocks.Add(new IntegrationJobPasswordUnlock
+            {
+                IntegrationJobId = jobId,
+                UserId = userId,
+                UnlockedAtUtc = DateTimeOffset.UtcNow
+            });
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return true;
+    }
+
+    public async Task UpdatePasswordAsync(Guid jobId, string? password, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        var job = await dbContext.IntegrationJobs
+            .Include(j => j.Owners)
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);
+        if (job == null)
+        {
+            throw new KeyNotFoundException("Integration job not found.");
+        }
+
+        if (job.CreatorUserId != userId)
+        {
+            throw new UnauthorizedAccessException("Only the job creator can set or change the password.");
+        }
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            job.PasswordHash = null;
+            job.PasswordSalt = null;
+        }
+        else
+        {
+            var (hash, salt) = passwordHasher.HashPassword(password);
+            job.PasswordHash = hash;
+            job.PasswordSalt = salt;
+        }
+
+        dbContext.IntegrationJobs.Update(job);
+
+        var unlocks = await dbContext.IntegrationJobPasswordUnlocks
+            .Where(u => u.IntegrationJobId == jobId)
+            .ToListAsync(cancellationToken);
+        dbContext.IntegrationJobPasswordUnlocks.RemoveRange(unlocks);
+
+        var guests = await dbContext.IntegrationJobGuests
+            .Where(g => g.IntegrationJobId == jobId)
+            .ToListAsync(cancellationToken);
+        dbContext.IntegrationJobGuests.RemoveRange(guests);
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }

@@ -31,4 +31,8 @@ public interface IIntegrationJobService
     Task AddOwnerAsync(Guid jobId, AddOwnerRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
 
     Task RemoveOwnerAsync(Guid jobId, Guid ownerUserId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
+
+    Task<bool> UnlockAsync(Guid jobId, string password, Guid userId, CancellationToken cancellationToken);
+
+    Task UpdatePasswordAsync(Guid jobId, string? password, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken);
 }
