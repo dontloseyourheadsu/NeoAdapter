@@ -10,10 +10,16 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// Register HttpClient pointing to the API default
-builder.Services.AddScoped(sp => new HttpClient 
-{ 
-    BaseAddress = new Uri("http://localhost:5193/") 
+// Register HttpClient pointing to the API default (resolving from Aspire configuration if available)
+builder.Services.AddScoped(sp => 
+{
+    var apiBaseUrl = builder.Configuration["services:api:http:0"] 
+                     ?? builder.Configuration["services:api:https:0"] 
+                     ?? "http://localhost:5193/";
+    return new HttpClient 
+    { 
+        BaseAddress = new Uri(apiBaseUrl) 
+    };
 });
 
 // Register shared API clients
@@ -25,7 +31,7 @@ builder.Services.AddScoped<IntegrationJobsApiClient>();
 builder.Services.AddScoped<OrgAdminApiClient>();
 
 // Register state and token storage
-builder.Services.AddSingleton<AppState>();
+builder.Services.AddScoped<AppState>();
 builder.Services.AddScoped<ITokenStorage, WebTokenStorage>();
 builder.Services.AddScoped<IOAuthHelper, WebOAuthHelper>();
 

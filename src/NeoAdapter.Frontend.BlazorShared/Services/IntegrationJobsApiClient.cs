@@ -80,4 +80,60 @@ public sealed class IntegrationJobsApiClient(HttpClient httpClient)
             return null;
         }
     }
+
+    public async Task<IReadOnlyList<IntegrationJobGuestDto>> GetGuestsAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await httpClient.GetFromJsonAsync<IReadOnlyList<IntegrationJobGuestDto>>($"api/integration-jobs/{jobId}/guests", cancellationToken);
+            return response ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<bool> InviteGuestAsync(Guid jobId, InviteGuestRequest request, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.PostAsJsonAsync($"api/integration-jobs/{jobId}/guests", request, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> UpdateGuestPermissionsAsync(Guid jobId, Guid userId, UpdateGuestPermissionsRequest request, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.PutAsJsonAsync($"api/integration-jobs/{jobId}/guests/{userId}", request, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> RemoveGuestAsync(Guid jobId, Guid userId, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.DeleteAsync($"api/integration-jobs/{jobId}/guests/{userId}", cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<IReadOnlyList<IntegrationJobOwnerDto>> GetOwnersAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await httpClient.GetFromJsonAsync<IReadOnlyList<IntegrationJobOwnerDto>>($"api/integration-jobs/{jobId}/owners", cancellationToken);
+            return response ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<bool> AddOwnerAsync(Guid jobId, AddOwnerRequest request, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.PostAsJsonAsync($"api/integration-jobs/{jobId}/owners", request, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> RemoveOwnerAsync(Guid jobId, Guid userId, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.DeleteAsync($"api/integration-jobs/{jobId}/owners/{userId}", cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
 }
