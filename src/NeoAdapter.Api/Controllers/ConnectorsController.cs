@@ -44,7 +44,11 @@ public sealed class ConnectorsController(IConnectorService connectorService, Neo
     {
         var user = await GetCurrentUserAsync(cancellationToken);
         if (user == null) return Unauthorized();
-        if (!user.RoleCreate && !user.RoleAdmin) return Forbid();
+
+        var hasGuestCreatePermission = await dbContext.IntegrationJobGuests
+            .AnyAsync(g => g.UserId == user.Id && g.CanCreateConnectors, cancellationToken);
+
+        if (!user.RoleCreate && !user.RoleAdmin && !hasGuestCreatePermission) return Forbid();
 
         try
         {

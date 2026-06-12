@@ -33,15 +33,20 @@ public sealed class IntegrationJobService(
 
         if (roleAdmin || role == "Admin")
         {
-            query = query.Where(job => job.OwnerOrganizationId == organizationId);
+            query = query.Where(job => 
+                job.OwnerOrganizationId == organizationId || 
+                job.Owners.Any(o => o.Id == userId) || 
+                job.Guests.Any(g => g.UserId == userId));
         }
         else
         {
             query = query.Where(job => 
-                job.OwnerOrganizationId == organizationId &&
-                (job.OwnerGroupId == null && !job.Groups.Any() || 
-                 (groupId.HasValue && (job.OwnerGroupId == groupId || job.Groups.Any(g => g.Id == groupId.Value))) || 
-                 job.OwnerUserId == userId));
+                (job.OwnerOrganizationId == organizationId &&
+                 (job.OwnerGroupId == null && !job.Groups.Any() || 
+                  (groupId.HasValue && (job.OwnerGroupId == groupId || job.Groups.Any(g => g.Id == groupId.Value))) || 
+                  job.OwnerUserId == userId)) ||
+                job.Owners.Any(o => o.Id == userId) || 
+                job.Guests.Any(g => g.UserId == userId));
         }
 
         var jobs = await query
@@ -116,8 +121,24 @@ public sealed class IntegrationJobService(
             IsEnabled = request.IsEnabled,
             CronExpression = cronExpression,
             CreatedAtUtc = now,
-            UpdatedAtUtc = now
+            UpdatedAtUtc = now,
+            CreatorUserId = userId
         };
+
+        var creatorUser = await dbContext.UserAccounts.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (creatorUser != null)
+        {
+            job.Owners.Add(creatorUser);
+        }
+
+        if (request.OwnerUserId.HasValue && request.OwnerUserId.Value != userId)
+        {
+            var requestedOwner = await dbContext.UserAccounts.FirstOrDefaultAsync(u => u.Id == request.OwnerUserId.Value, cancellationToken);
+            if (requestedOwner != null)
+            {
+                job.Owners.Add(requestedOwner);
+            }
+        }
 
         var targetGroupIds = new List<Guid>();
         if (request.OwnerGroupId.HasValue)
@@ -189,7 +210,10 @@ public sealed class IntegrationJobService(
 
     public async Task<EnqueueIntegrationJobResponse> EnqueueRunAsync(Guid integrationJobId, string startedBy, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
     {
-        if (!roleEdit && !roleAdmin)
+        var hasGuestEditPermission = await dbContext.IntegrationJobGuests
+            .AnyAsync(g => g.IntegrationJobId == integrationJobId && g.UserId == userId && g.CanEdit, cancellationToken);
+
+        if (!roleEdit && !roleAdmin && !hasGuestEditPermission)
         {
             throw new UnauthorizedAccessException("You do not have permission to run/edit integration jobs.");
         }
@@ -287,7 +311,10 @@ public sealed class IntegrationJobService(
 
     private async Task EnsureJobAccessAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
     {
-        if (!roleRead && !roleAdmin)
+        var hasGuestReadPermission = await dbContext.IntegrationJobGuests
+            .AnyAsync(g => g.IntegrationJobId == jobId && g.UserId == userId && (g.CanRead || g.CanEdit), cancellationToken);
+
+        if (!roleRead && !roleAdmin && !hasGuestReadPermission)
         {
             throw new UnauthorizedAccessException("You do not have permission to read jobs.");
         }
@@ -302,15 +329,18 @@ public sealed class IntegrationJobService(
         if (roleAdmin || role == "Admin")
         {
             hasAccess = await dbContext.IntegrationJobs
-                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId, cancellationToken);
+                .AnyAsync(j => j.Id == jobId && (j.OwnerOrganizationId == organizationId || j.Owners.Any(o => o.Id == userId) || j.Guests.Any(g => g.UserId == userId)), cancellationToken);
         }
         else
         {
             hasAccess = await dbContext.IntegrationJobs
-                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId &&
-                    (j.OwnerGroupId == null && !j.Groups.Any() || 
-                     (groupId.HasValue && (j.OwnerGroupId == groupId || j.Groups.Any(g => g.Id == groupId.Value))) || 
-                     j.OwnerUserId == userId), cancellationToken);
+                .AnyAsync(j => j.Id == jobId && (
+                    (j.OwnerOrganizationId == organizationId &&
+                     (j.OwnerGroupId == null && !j.Groups.Any() || 
+                      (groupId.HasValue && (j.OwnerGroupId == groupId || j.Groups.Any(g => g.Id == groupId.Value))) || 
+                      j.OwnerUserId == userId)) ||
+                    j.Owners.Any(o => o.Id == userId) || 
+                    j.Guests.Any(g => g.UserId == userId && (g.CanRead || g.CanEdit))), cancellationToken);
         }
 
         if (!hasAccess)
@@ -321,7 +351,10 @@ public sealed class IntegrationJobService(
 
     private async Task EnsureJobAccessForWriteAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
     {
-        if (!roleEdit && !roleAdmin)
+        var hasGuestEditPermission = await dbContext.IntegrationJobGuests
+            .AnyAsync(g => g.IntegrationJobId == jobId && g.UserId == userId && g.CanEdit, cancellationToken);
+
+        if (!roleEdit && !roleAdmin && !hasGuestEditPermission)
         {
             throw new UnauthorizedAccessException("You do not have permission to edit/write jobs.");
         }
@@ -336,15 +369,18 @@ public sealed class IntegrationJobService(
         if (roleAdmin || role == "Admin")
         {
             hasAccess = await dbContext.IntegrationJobs
-                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId, cancellationToken);
+                .AnyAsync(j => j.Id == jobId && (j.OwnerOrganizationId == organizationId || j.Owners.Any(o => o.Id == userId)), cancellationToken);
         }
         else
         {
             hasAccess = await dbContext.IntegrationJobs
-                .AnyAsync(j => j.Id == jobId && j.OwnerOrganizationId == organizationId &&
-                    (j.OwnerGroupId == null && !j.Groups.Any() || 
-                     (groupId.HasValue && (j.OwnerGroupId == groupId || j.Groups.Any(g => g.Id == groupId.Value))) || 
-                     j.OwnerUserId == userId), cancellationToken);
+                .AnyAsync(j => j.Id == jobId && (
+                    (j.OwnerOrganizationId == organizationId &&
+                     (j.OwnerGroupId == null && !j.Groups.Any() || 
+                      (groupId.HasValue && (j.OwnerGroupId == groupId || j.Groups.Any(g => g.Id == groupId.Value))) || 
+                      j.OwnerUserId == userId)) ||
+                    j.Owners.Any(o => o.Id == userId) || 
+                    j.Guests.Any(g => g.UserId == userId && g.CanEdit)), cancellationToken);
         }
 
         if (!hasAccess)
@@ -380,5 +416,226 @@ public sealed class IntegrationJobService(
             latestRun?.Status,
             latestRun?.Message,
             groupIds);
+    }
+
+    private async Task<bool> IsOwnerAsync(Guid jobId, Guid userId, CancellationToken cancellationToken)
+    {
+        var job = await dbContext.IntegrationJobs
+            .Include(j => j.Owners)
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);
+            
+        if (job == null) return false;
+        
+        return job.CreatorUserId == userId || 
+               job.OwnerUserId == userId || 
+               job.Owners.Any(o => o.Id == userId);
+    }
+
+    public async Task<IReadOnlyList<IntegrationJobGuestDto>> GetGuestsAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, roleRead, roleAdmin, cancellationToken);
+
+        return await dbContext.IntegrationJobGuests
+            .AsNoTracking()
+            .Where(g => g.IntegrationJobId == jobId)
+            .Include(g => g.User)
+            .Select(g => new IntegrationJobGuestDto(
+                g.UserId,
+                g.User != null ? g.User.Username : string.Empty,
+                g.User != null ? g.User.Email : null,
+                g.CanRead,
+                g.CanEdit,
+                g.CanCreateConnectors))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task InviteGuestAsync(Guid jobId, InviteGuestRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        var isOwner = await IsOwnerAsync(jobId, userId, cancellationToken);
+        var job = await dbContext.IntegrationJobs.FindAsync(new object[] { jobId }, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+        var isAdmin = roleAdmin || role == "Admin";
+        var hasAccess = isOwner || (isAdmin && job.OwnerOrganizationId == organizationId);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Only owners of the integration job can invite guests.");
+        }
+
+        var targetUser = await dbContext.UserAccounts
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower() || (u.Email != null && u.Email.ToLower() == request.Username.Trim().ToLower()), cancellationToken)
+            ?? throw new InvalidOperationException($"User '{request.Username}' not found.");
+
+        var alreadyGuest = await dbContext.IntegrationJobGuests
+            .AnyAsync(g => g.IntegrationJobId == jobId && g.UserId == targetUser.Id, cancellationToken);
+        if (alreadyGuest)
+        {
+            throw new InvalidOperationException("User is already a guest of this integration job.");
+        }
+
+        var alreadyOwner = await dbContext.IntegrationJobs
+            .AnyAsync(j => j.Id == jobId && (j.CreatorUserId == targetUser.Id || j.OwnerUserId == targetUser.Id || j.Owners.Any(o => o.Id == targetUser.Id)), cancellationToken);
+        if (alreadyOwner)
+        {
+            throw new InvalidOperationException("User is an owner of this integration job and cannot be added as a guest.");
+        }
+
+        var guest = new IntegrationJobGuest
+        {
+            IntegrationJobId = jobId,
+            UserId = targetUser.Id,
+            CanRead = request.CanRead,
+            CanEdit = request.CanEdit,
+            CanCreateConnectors = request.CanCreateConnectors
+        };
+
+        dbContext.IntegrationJobGuests.Add(guest);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UpdateGuestPermissionsAsync(Guid jobId, Guid guestUserId, UpdateGuestPermissionsRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        var isOwner = await IsOwnerAsync(jobId, userId, cancellationToken);
+        var job = await dbContext.IntegrationJobs.FindAsync(new object[] { jobId }, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+        var isAdmin = roleAdmin || role == "Admin";
+        var hasAccess = isOwner || (isAdmin && job.OwnerOrganizationId == organizationId);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Only owners of the integration job can update guest permissions.");
+        }
+
+        var guest = await dbContext.IntegrationJobGuests
+            .FirstOrDefaultAsync(g => g.IntegrationJobId == jobId && g.UserId == guestUserId, cancellationToken)
+            ?? throw new KeyNotFoundException("Guest record not found.");
+
+        guest.CanRead = request.CanRead;
+        guest.CanEdit = request.CanEdit;
+        guest.CanCreateConnectors = request.CanCreateConnectors;
+
+        dbContext.IntegrationJobGuests.Update(guest);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RemoveGuestAsync(Guid jobId, Guid guestUserId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        var isOwner = await IsOwnerAsync(jobId, userId, cancellationToken);
+        var job = await dbContext.IntegrationJobs.FindAsync(new object[] { jobId }, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+        var isAdmin = roleAdmin || role == "Admin";
+        var hasAccess = isOwner || (isAdmin && job.OwnerOrganizationId == organizationId);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Only owners of the integration job can remove guests.");
+        }
+
+        var guest = await dbContext.IntegrationJobGuests
+            .FirstOrDefaultAsync(g => g.IntegrationJobId == jobId && g.UserId == guestUserId, cancellationToken)
+            ?? throw new KeyNotFoundException("Guest record not found.");
+
+        dbContext.IntegrationJobGuests.Remove(guest);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<IntegrationJobOwnerDto>> GetOwnersAsync(Guid jobId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleRead, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        await EnsureJobAccessAsync(jobId, userId, organizationId, groupId, role, roleRead, roleAdmin, cancellationToken);
+
+        var job = await dbContext.IntegrationJobs
+            .AsNoTracking()
+            .Include(j => j.Owners)
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+
+        var owners = new List<IntegrationJobOwnerDto>();
+
+        // Creator owner
+        if (job.CreatorUserId.HasValue)
+        {
+            var creator = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == job.CreatorUserId.Value, cancellationToken);
+            if (creator != null)
+            {
+                owners.Add(new IntegrationJobOwnerDto(creator.Id, creator.Username, creator.Email, true));
+            }
+        }
+
+        // Other owners
+        foreach (var owner in job.Owners)
+        {
+            if (owners.Any(o => o.UserId == owner.Id)) continue;
+            owners.Add(new IntegrationJobOwnerDto(owner.Id, owner.Username, owner.Email, owner.Id == job.CreatorUserId));
+        }
+
+        return owners;
+    }
+
+    public async Task AddOwnerAsync(Guid jobId, AddOwnerRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        var isOwner = await IsOwnerAsync(jobId, userId, cancellationToken);
+        var job = await dbContext.IntegrationJobs
+            .Include(j => j.Owners)
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+        var isAdmin = roleAdmin || role == "Admin";
+        var hasAccess = isOwner || (isAdmin && job.OwnerOrganizationId == organizationId);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Only owners of the integration job can add other owners.");
+        }
+
+        var targetUser = await dbContext.UserAccounts
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower() || (u.Email != null && u.Email.ToLower() == request.Username.Trim().ToLower()), cancellationToken)
+            ?? throw new InvalidOperationException($"User '{request.Username}' not found.");
+
+        if (job.CreatorUserId == targetUser.Id || job.OwnerUserId == targetUser.Id || job.Owners.Any(o => o.Id == targetUser.Id))
+        {
+            throw new InvalidOperationException("User is already an owner of this integration job.");
+        }
+
+        // Remove from guest list if they were a guest
+        var guest = await dbContext.IntegrationJobGuests
+            .FirstOrDefaultAsync(g => g.IntegrationJobId == jobId && g.UserId == targetUser.Id, cancellationToken);
+        if (guest != null)
+        {
+            dbContext.IntegrationJobGuests.Remove(guest);
+        }
+
+        job.Owners.Add(targetUser);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RemoveOwnerAsync(Guid jobId, Guid ownerUserId, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleEdit, bool roleAdmin, CancellationToken cancellationToken)
+    {
+        var isOwner = await IsOwnerAsync(jobId, userId, cancellationToken);
+        var job = await dbContext.IntegrationJobs
+            .Include(j => j.Owners)
+            .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken)
+            ?? throw new KeyNotFoundException("Integration job not found.");
+        var isAdmin = roleAdmin || role == "Admin";
+        var hasAccess = isOwner || (isAdmin && job.OwnerOrganizationId == organizationId);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Only owners of the integration job can remove owners.");
+        }
+
+        if (job.CreatorUserId == ownerUserId)
+        {
+            throw new InvalidOperationException("The creator of the integration job cannot be removed from owners.");
+        }
+
+        var ownerToRemove = job.Owners.FirstOrDefault(o => o.Id == ownerUserId);
+        if (ownerToRemove == null)
+        {
+            throw new InvalidOperationException("User is not an owner of this integration job.");
+        }
+
+        job.Owners.Remove(ownerToRemove);
+        
+        // Also update OwnerUserId if it matched the removed user
+        if (job.OwnerUserId == ownerUserId)
+        {
+            job.OwnerUserId = job.CreatorUserId;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 }
