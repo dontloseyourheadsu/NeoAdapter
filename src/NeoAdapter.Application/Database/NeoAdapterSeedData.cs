@@ -143,7 +143,23 @@ public static class NeoAdapterSeedData
             };
             csvToSqlJob.Owners.Add(admin);
 
-            dbContext.IntegrationJobs.AddRange(sqlToCsvJob, csvToSqlJob);
+            var (secureHash, secureSalt) = passwordHasher.HashPassword("Secret123!");
+            var secureJob = new IntegrationJob
+            {
+                Id = Guid.NewGuid(),
+                Name = "Secure Database Backup - Locked Job",
+                OwnerOrganizationId = org.Id,
+                IsEnabled = true,
+                CronExpression = "0 0 * * *",
+                CreatorUserId = admin.Id,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+                PasswordHash = secureHash,
+                PasswordSalt = secureSalt
+            };
+            secureJob.Owners.Add(admin);
+
+            dbContext.IntegrationJobs.AddRange(sqlToCsvJob, csvToSqlJob, secureJob);
 
             dbContext.Set<IntegrationJobStep>().AddRange(
                 new IntegrationJobStep
@@ -160,6 +176,14 @@ public static class NeoAdapterSeedData
                     IntegrationJobId = csvToSqlJob.Id,
                     OrderIndex = 0,
                     SourceConnectorId = csvSource.Id,
+                    DestinationConnectorId = sqlTarget.Id
+                },
+                new IntegrationJobStep
+                {
+                    Id = Guid.NewGuid(),
+                    IntegrationJobId = secureJob.Id,
+                    OrderIndex = 0,
+                    SourceConnectorId = sqlSource.Id,
                     DestinationConnectorId = sqlTarget.Id
                 });
 
