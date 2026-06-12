@@ -5,6 +5,7 @@
     <Project Path="src/NeoAdapter.Application/NeoAdapter.Application.csproj" />
     <Project Path="src/NeoAdapter.Contracts/NeoAdapter.Contracts.csproj" />
     <Project Path="src/NeoAdapter.Domain/NeoAdapter.Domain.csproj" />
+    <Project Path="src/NeoAdapter.DbInitializer/NeoAdapter.DbInitializer.csproj" />
   </Folder>
   <Folder Name="/src/NeoAdapter.Frontend.Blazor/">
     <Project Path="src/NeoAdapter.Frontend.BlazorShared/NeoAdapter.Frontend.BlazorShared.csproj" />
