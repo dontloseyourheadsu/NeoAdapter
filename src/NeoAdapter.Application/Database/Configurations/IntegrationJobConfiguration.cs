@@ -30,6 +30,9 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
         builder.Property(job => job.OwnerOrganizationId)
             .HasColumnName("owner_organization_id");
 
+        builder.Property(job => job.CreatorUserId)
+            .HasColumnName("creator_user_id");
+
         builder.Property(job => job.IsEnabled)
             .HasColumnName("is_enabled")
             .IsRequired();
@@ -53,6 +56,11 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
             .HasForeignKey(job => job.OwnerUserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasOne<UserAccount>()
+            .WithMany()
+            .HasForeignKey(job => job.CreatorUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasOne<Group>()
             .WithMany()
             .HasForeignKey(job => job.OwnerGroupId)
@@ -75,6 +83,20 @@ public sealed class IntegrationJobConfiguration : IEntityTypeConfiguration<Integ
                     je.Property<Guid>("integration_job_id").HasColumnName("integration_job_id");
                     je.Property<Guid>("group_id").HasColumnName("group_id");
                     je.HasKey("integration_job_id", "group_id");
+                });
+
+        builder.HasMany(job => job.Owners)
+            .WithMany()
+            .UsingEntity<Dictionary<string, object>>(
+                "IntegrationJobOwner",
+                r => r.HasOne<UserAccount>().WithMany().HasForeignKey("user_account_id").OnDelete(DeleteBehavior.Cascade),
+                l => l.HasOne<IntegrationJob>().WithMany().HasForeignKey("integration_job_id").OnDelete(DeleteBehavior.Cascade),
+                je =>
+                {
+                    je.ToTable("integration_job_owners");
+                    je.Property<Guid>("integration_job_id").HasColumnName("integration_job_id");
+                    je.Property<Guid>("user_account_id").HasColumnName("user_account_id");
+                    je.HasKey("integration_job_id", "user_account_id");
                 });
     }
 }
