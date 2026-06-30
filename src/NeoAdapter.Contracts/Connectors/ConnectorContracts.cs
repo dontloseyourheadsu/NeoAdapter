@@ -7,7 +7,8 @@ public enum ConnectorType
     Csv,
     Excel,
     Path,
-    Sftp
+    Sftp,
+    SharePoint
 }
 
 public sealed record ConnectorDto(
@@ -19,6 +20,7 @@ public sealed record ConnectorDto(
     ExcelConnectorSettingsDto? Excel,
     PathConnectorSettingsDto? Path,
     SftpConnectorSettingsDto? Sftp,
+    SharePointConnectorSettingsDto? SharePoint,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -54,7 +56,8 @@ public sealed record CreateConnectorRequest(
     CsvConnectorSettingsDto? Csv = null,
     ExcelConnectorSettingsDto? Excel = null,
     PathConnectorSettingsDto? Path = null,
-    SftpConnectorSettingsInputDto? Sftp = null);
+    SftpConnectorSettingsInputDto? Sftp = null,
+    SharePointConnectorSettingsInputDto? SharePoint = null);
 
 
 public sealed record TestConnectorRequest(
@@ -63,7 +66,23 @@ public sealed record TestConnectorRequest(
     CsvConnectorSettingsDto? Csv = null,
     ExcelConnectorSettingsDto? Excel = null,
     PathConnectorSettingsDto? Path = null,
-    SftpConnectorSettingsInputDto? Sftp = null);
+    SftpConnectorSettingsInputDto? Sftp = null,
+    SharePointConnectorSettingsInputDto? SharePoint = null);
+
+public sealed record SharePointConnectorSettingsDto(
+    string SiteUrl,
+    string ListName,
+    string? ConfigJson);
+
+public sealed record SharePointConnectorSettingsInputDto(
+    string SiteUrl,
+    string ListName,
+    string? ConfigJson = null);
+
+public sealed record SharePointFieldDto(
+    string Title,
+    string InternalName,
+    string TypeAsString);
 
 public sealed record PathConnectorSettingsDto(
     string Path);
