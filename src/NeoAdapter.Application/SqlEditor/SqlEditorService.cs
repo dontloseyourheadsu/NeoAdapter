@@ -163,9 +163,49 @@ public sealed class SqlEditorService(
         string query,
         CancellationToken cancellationToken)
     {
-        // Placeholder to be implemented in subsequent commits
-        await Task.CompletedTask;
-        return new QueryResultDto(Array.Empty<string>(), Array.Empty<IReadOnlyList<object?>>(), 0);
+        try
+        {
+            await using var showplanOnCmd = connection.CreateCommand();
+            showplanOnCmd.CommandText = "SET SHOWPLAN_TEXT ON;";
+            await showplanOnCmd.ExecuteNonQueryAsync(cancellationToken);
+
+            var planBuilder = new StringBuilder();
+            try
+            {
+                await using var queryCmd = connection.CreateCommand();
+                queryCmd.CommandText = query;
+                await using var reader = await queryCmd.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    if (reader.FieldCount > 0 && !reader.IsDBNull(0))
+                    {
+                        planBuilder.AppendLine(reader.GetString(0));
+                    }
+                }
+            }
+            finally
+            {
+                await using var showplanOffCmd = connection.CreateCommand();
+                showplanOffCmd.CommandText = "SET SHOWPLAN_TEXT OFF;";
+                await showplanOffCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            return new QueryResultDto(
+                Columns: Array.Empty<string>(),
+                Rows: Array.Empty<IReadOnlyList<object?>>(),
+                RowsAffected: -1,
+                ExplainPlan: planBuilder.ToString()
+            );
+        }
+        catch (Exception ex)
+        {
+            return new QueryResultDto(
+                Columns: Array.Empty<string>(),
+                Rows: Array.Empty<IReadOnlyList<object?>>(),
+                RowsAffected: -1,
+                ErrorMessage: ex.Message
+            );
+        }
     }
 
     private async Task<ConnectorType> GetConnectorTypeAsync(Guid connectorId, CancellationToken cancellationToken)
