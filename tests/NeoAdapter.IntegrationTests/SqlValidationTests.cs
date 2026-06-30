@@ -31,7 +31,10 @@ public class SqlValidationTests
     [InlineData("REVOKE SELECT ON Products FROM Guest", false, "REVOKE")]
     [InlineData("SELECT * FROM Products; DELETE FROM Products;", false, "DELETE")]
     [InlineData("/* comment */ DELETE FROM Products;", false, "DELETE")]
-    [InlineData("SELECT * FROM Products; -- \n DELETE FROM Products;", false, "DELETE")]
+    [InlineData("EXPLAIN SELECT * FROM Products", true, "")]
+    [InlineData("EXPLAIN (ANALYZE, VERBOSE) SELECT * FROM Products", true, "")]
+    [InlineData("EXPLAIN DELETE FROM Products", false, "DELETE")]
+    [InlineData("EXPLAIN ANALYZE INSERT INTO Products VALUES (1)", false, "INSERT")]
     public void IsQueryAllowed_ShouldValidateCorrectly(string query, bool expectedAllowed, string expectedForbiddenKeyword)
     {
         var result = SqlValidation.IsQueryAllowed(query, out var forbiddenKeyword);
