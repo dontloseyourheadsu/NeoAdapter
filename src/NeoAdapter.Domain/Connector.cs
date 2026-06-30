@@ -42,6 +42,12 @@ public sealed class Connector
 
     public string? SftpRemotePath { get; set; }
 
+    public string? SharePointSiteUrl { get; set; }
+
+    public string? SharePointListName { get; set; }
+
+    public string? SharePointConfigJson { get; set; }
+
 
     public Guid? OwnerUserId { get; set; }
 
