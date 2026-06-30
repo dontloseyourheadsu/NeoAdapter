@@ -7,6 +7,7 @@ public enum ConnectorType
     Csv,
     Excel,
     Path,
-    Sftp
+    Sftp,
+    SharePoint
 }
 
