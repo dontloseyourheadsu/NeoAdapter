@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -101,8 +102,51 @@ public sealed class SqlEditorService(
         await using (connection)
         {
             await connection.OpenAsync(cancellationToken);
+
+            if (request.ExplainOnly)
+            {
+                var dbType = request.ConnectorId.HasValue
+                    ? await GetConnectorTypeAsync(request.ConnectorId.Value, cancellationToken)
+                    : request.Type!.Value;
+                return await ExecuteExplainQueryAsync(connection, dbType, request.Query, cancellationToken);
+            }
+
             return await ExecuteQueryInternalAsync(connection, request.Query, cancellationToken);
         }
+    }
+
+    private async Task<QueryResultDto> ExecuteExplainQueryAsync(
+        DbConnection connection,
+        ConnectorType type,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        return type switch
+        {
+            ConnectorType.Postgres => await ExecutePostgresExplainAsync(connection, query, cancellationToken),
+            ConnectorType.SqlServer => await ExecuteSqlServerExplainAsync(connection, query, cancellationToken),
+            _ => throw new InvalidOperationException("Unsupported database type for explain query.")
+        };
+    }
+
+    private async Task<QueryResultDto> ExecutePostgresExplainAsync(
+        DbConnection connection,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        // Placeholder to be implemented in subsequent commits
+        await Task.CompletedTask;
+        return new QueryResultDto(Array.Empty<string>(), Array.Empty<IReadOnlyList<object?>>(), 0);
+    }
+
+    private async Task<QueryResultDto> ExecuteSqlServerExplainAsync(
+        DbConnection connection,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        // Placeholder to be implemented in subsequent commits
+        await Task.CompletedTask;
+        return new QueryResultDto(Array.Empty<string>(), Array.Empty<IReadOnlyList<object?>>(), 0);
     }
 
     private async Task<ConnectorType> GetConnectorTypeAsync(Guid connectorId, CancellationToken cancellationToken)
