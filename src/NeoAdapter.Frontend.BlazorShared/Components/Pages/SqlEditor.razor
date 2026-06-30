@@ -339,6 +339,12 @@
                             Query executed successfully. Affected rows: @_queryResult.RowsAffected.
                         </div>
                     }
+                    else if (!string.IsNullOrEmpty(_queryResult.ExplainPlan))
+                    {
+                        <div>
+                            <pre>@_queryResult.ExplainPlan</pre>
+                        </div>
+                    }
                     else
                     {
                         <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left;">
