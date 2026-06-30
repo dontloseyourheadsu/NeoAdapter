@@ -59,10 +59,10 @@
                         @foreach (var connector in _connectors)
                         {
                             var isSelected = _selectedConnector?.Id == connector.Id;
-                            var typeClass = connector.Type == ConnectorType.SqlServer ? "blue" : connector.Type == ConnectorType.Postgres ? "violet" : "green";
+                            var typeClass = connector.Type == ConnectorType.SqlServer ? "blue" : connector.Type == ConnectorType.Postgres ? "violet" : connector.Type == ConnectorType.SharePoint ? "orange" : "green";
                             <div class="job-item @(isSelected ? "active" : "")" @onclick="() => SelectConnector(connector)" style="cursor: pointer;">
                                 <div class="job-item-icon @typeClass">
-                                    @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : "📄")
+                                    @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : connector.Type == ConnectorType.SharePoint ? "S" : "📄")
                                 </div>
                                 <div class="job-item-info">
                                     <div class="job-item-name">@connector.Name</div>
@@ -146,6 +146,7 @@
                                 <option value="@ConnectorType.Csv">CSV File (Csv)</option>
                                 <option value="@ConnectorType.Path">Path (Local Directory/File)</option>
                                 <option value="@ConnectorType.Sftp">SFTP Server</option>
+                                <option value="@ConnectorType.SharePoint">SharePoint List (SharePoint)</option>
                             </select>
                         }
                         else
@@ -233,6 +234,56 @@
                             <label class="form-label">SFTP Remote Path</label>
                             <input type="text" class="form-input" @bind="_sftpRemotePath" readonly="@(!_isEditingConnector)" placeholder="e.g. /upload" />
                         </div>
+                    }
+                    else if (_connType == ConnectorType.SharePoint)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Site URL</label>
+                            <input type="text" class="form-input" @bind="_sharepointSiteUrl" readonly="@(!_isEditingConnector)" placeholder="https://tenant.sharepoint.com/sites/yoursite" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">List Name</label>
+                            <div style="display: flex; gap: 8px;">
+                                @if (_isEditingConnector)
+                                {
+                                    <input type="text" class="form-input" @bind="_sharepointListName" placeholder="Type list name or load lists" style="flex: 1;" />
+                                    <button type="button" class="btn-secondary" @onclick="LoadSharePointListsAsync" disabled="@_isBusy">Load Lists</button>
+                                }
+                                else
+                                {
+                                    <input type="text" class="form-input" value="@_sharepointListName" readonly />
+                                }
+                            </div>
+                        </div>
+                        @if (_sharepointLists.Count > 0 && _isEditingConnector)
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Select List</label>
+                                <select class="form-input" @onchange="OnSharePointListSelected">
+                                    <option value="">-- Choose List --</option>
+                                    @foreach (var list in _sharepointLists)
+                                    {
+                                        <option value="@list">@list</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        
+                        @if (_sharepointFields.Count > 0)
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Available Fields</label>
+                                <div style="max-height: 200px; overflow-y: auto; background: var(--dark-200); padding: 8px; border-radius: 4px; font-size: 13px;">
+                                    @foreach (var f in _sharepointFields)
+                                    {
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--dark-300); padding: 4px 0;">
+                                            <span>@f.Title</span>
+                                            <span style="color: var(--text-muted); font-family: monospace;">@f.TypeAsString</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
                     }
 
                     @if (_isEditingConnector)
@@ -611,6 +662,11 @@
     private string _sftpUsername = "";
     private string _sftpPassword = "";
     private string _sftpRemotePath = "";
+    private string _sharepointSiteUrl = "";
+    private string _sharepointListName = "";
+    private string _sharepointConfigJson = "";
+    private List<string> _sharepointLists = new();
+    private List<SharePointFieldDto> _sharepointFields = new();
 
     // Form bindings (Job)
     private string _jobName = "";
@@ -661,6 +717,11 @@
         _sftpUsername = "";
         _sftpPassword = "";
         _sftpRemotePath = "";
+        _sharepointSiteUrl = "";
+        _sharepointListName = "";
+        _sharepointConfigJson = "";
+        _sharepointLists.Clear();
+        _sharepointFields.Clear();
         _isEditingConnector = true;
         ClearBanners();
     }
@@ -696,6 +757,15 @@
             _sftpUsername = connector.Sftp.Username;
             _sftpRemotePath = connector.Sftp.RemotePath;
             _sftpPassword = "";
+        }
+        else if (connector.SharePoint != null)
+        {
+            _sharepointSiteUrl = connector.SharePoint.SiteUrl;
+            _sharepointListName = connector.SharePoint.ListName;
+            _sharepointConfigJson = connector.SharePoint.ConfigJson ?? "";
+            _sharepointLists.Clear();
+            _sharepointFields.Clear();
+            _ = LoadSharePointFieldsAsync();
         }
  
         ClearBanners();
@@ -749,7 +819,8 @@
                 _connType == ConnectorType.Csv ? new CsvConnectorSettingsDto(_csvPath, _csvDelimiter) : null,
                 null,
                 _connType == ConnectorType.Path ? new PathConnectorSettingsDto(_localPath) : null,
-                _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null
+                _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null,
+                _connType == ConnectorType.SharePoint ? new SharePointConnectorSettingsInputDto(_sharepointSiteUrl, _sharepointListName, null) : null
             );
 
             var result = await ConnectorApiClient.CreateAsync(req, CancellationToken.None);
@@ -785,7 +856,8 @@
             _connType == ConnectorType.Csv ? new CsvConnectorSettingsDto(_csvPath, _csvDelimiter) : null,
             null,
             _connType == ConnectorType.Path ? new PathConnectorSettingsDto(_localPath) : null,
-            _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null
+            _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null,
+            _connType == ConnectorType.SharePoint ? new SharePointConnectorSettingsInputDto(_sharepointSiteUrl, _sharepointListName, null) : null
         );
     }
 
@@ -1193,6 +1265,63 @@
         finally
         {
             _isBusy = false;
+        }
+    }
+
+    private async Task LoadSharePointListsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_sharepointSiteUrl))
+        {
+            _errorMessage = "Please enter a Site URL first.";
+            return;
+        }
+
+        _errorMessage = null;
+        _isBusy = true;
+        try
+        {
+            var lists = await ConnectorApiClient.GetSharePointListsAsync(_sharepointSiteUrl, CancellationToken.None);
+            _sharepointLists = lists.ToList();
+            if (_sharepointLists.Count == 0)
+            {
+                _errorMessage = "No lists found or your user is not authenticated with Microsoft.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load SharePoint lists: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task OnSharePointListSelected(ChangeEventArgs e)
+    {
+        var list = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(list))
+        {
+            _sharepointListName = list;
+            await LoadSharePointFieldsAsync();
+        }
+    }
+
+    private async Task LoadSharePointFieldsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_sharepointSiteUrl) || string.IsNullOrWhiteSpace(_sharepointListName))
+        {
+            return;
+        }
+
+        try
+        {
+            var fields = await ConnectorApiClient.GetSharePointFieldsAsync(_sharepointSiteUrl, _sharepointListName, CancellationToken.None);
+            _sharepointFields = fields.ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load SharePoint fields: {ex.Message}";
         }
     }
 

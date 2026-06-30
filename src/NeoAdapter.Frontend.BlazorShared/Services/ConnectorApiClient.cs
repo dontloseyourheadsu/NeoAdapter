@@ -43,4 +43,24 @@ public sealed class ConnectorApiClient(HttpClient httpClient)
 
         return await response.Content.ReadFromJsonAsync<TestConnectorResponse>(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<string>> GetSharePointListsAsync(string siteUrl, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.GetAsync($"api/connectors/sharepoint/lists?siteUrl={System.Uri.EscapeDataString(siteUrl)}", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+        return await response.Content.ReadFromJsonAsync<IReadOnlyList<string>>(cancellationToken) ?? [];
+    }
+
+    public async Task<IReadOnlyList<SharePointFieldDto>> GetSharePointFieldsAsync(string siteUrl, string listName, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.GetAsync($"api/connectors/sharepoint/fields?siteUrl={System.Uri.EscapeDataString(siteUrl)}&listName={System.Uri.EscapeDataString(listName)}", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+        return await response.Content.ReadFromJsonAsync<IReadOnlyList<SharePointFieldDto>>(cancellationToken) ?? [];
+    }
 }

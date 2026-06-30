@@ -151,7 +151,7 @@
             {
                 <div class="integration-card connected">
                     <div class="int-icon" style="background: @GetConnectorIconBg(connector.Type); color: @GetConnectorIconColor(connector.Type)">
-                        @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : "📄")
+                        @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : connector.Type == ConnectorType.SharePoint ? "S" : "📄")
                     </div>
                     <div class="int-name">@connector.Name</div>
                     <div class="int-jobs">@connector.Type.ToString()</div>
@@ -291,7 +291,8 @@
         {
             ConnectorType.SqlServer => "var(--blue-dim)",
             ConnectorType.Postgres => "rgba(166, 109, 255, 0.1)",
-            _ => "var(--green-dim)"
+            ConnectorType.SharePoint => "rgba(249, 115, 22, 0.1)",
+            _ => "rgba(74, 222, 128, 0.1)"
         };
     }
 
@@ -301,7 +302,8 @@
         {
             ConnectorType.SqlServer => "var(--blue)",
             ConnectorType.Postgres => "var(--violet-300)",
-            _ => "var(--green)"
+            ConnectorType.SharePoint => "rgb(249, 115, 22)",
+            _ => "rgb(74, 222, 128)"
         };
     }
 

@@ -12,7 +12,10 @@ namespace NeoAdapter.Api.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/connectors")]
-public sealed class ConnectorsController(IConnectorService connectorService, NeoAdapterDbContext dbContext) : ControllerBase
+public sealed class ConnectorsController(
+    IConnectorService connectorService,
+    NeoAdapterDbContext dbContext,
+    ISharePointApiClient sharePointApiClient) : ControllerBase
 {
     [AllowAnonymous]
     [HttpGet("ping")]
@@ -76,10 +79,59 @@ public sealed class ConnectorsController(IConnectorService connectorService, Neo
 
         try
         {
-            var result = await connectorService.TestAsync(request, cancellationToken);
+            var result = await connectorService.TestAsync(request, user.Id, cancellationToken);
             return Ok(result);
         }
         catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpGet("sharepoint/lists")]
+    public async Task<ActionResult<IReadOnlyList<string>>> GetSharePointLists(
+        [FromQuery] string siteUrl,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (string.IsNullOrEmpty(user.MicrosoftId))
+        {
+            return BadRequest("Your account must be authenticated with Microsoft to use SharePoint features.");
+        }
+
+        try
+        {
+            var token = await sharePointApiClient.GetAccessTokenAsync(siteUrl, cancellationToken);
+            var lists = await sharePointApiClient.GetListsAsync(siteUrl, token, cancellationToken);
+            return Ok(lists);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpGet("sharepoint/fields")]
+    public async Task<ActionResult<IReadOnlyList<SharePointFieldDto>>> GetSharePointFields(
+        [FromQuery] string siteUrl,
+        [FromQuery] string listName,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (string.IsNullOrEmpty(user.MicrosoftId))
+        {
+            return BadRequest("Your account must be authenticated with Microsoft to use SharePoint features.");
+        }
+
+        try
+        {
+            var token = await sharePointApiClient.GetAccessTokenAsync(siteUrl, cancellationToken);
+            var fields = await sharePointApiClient.GetFieldsAsync(siteUrl, listName, token, cancellationToken);
+            return Ok(fields);
+        }
+        catch (Exception ex)
         {
             return BadRequest(ex.Message);
         }

@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using System.Linq;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using CsvHelper;
 using CsvHelper.Configuration;
 using Microsoft.Data.SqlClient;
@@ -13,12 +15,16 @@ using NeoAdapter.Application.Security;
 using NeoAdapter.Domain;
 using Npgsql;
 using MiniExcelLibs;
+using NeoAdapter.Contracts.Connectors;
+using NeoAdapter.Application.Connectors;
+using ConnectorType = NeoAdapter.Domain.ConnectorType;
 
 namespace NeoAdapter.Application.IntegrationJobs;
 
 public sealed class IntegrationJobExecutor(
     NeoAdapterDbContext dbContext,
-    ISqlSecretProtector sqlSecretProtector) : IIntegrationJobExecutor
+    ISqlSecretProtector sqlSecretProtector,
+    ISharePointApiClient sharePointApiClient) : IIntegrationJobExecutor
 {
     private class SqlTableConfig
     {
@@ -110,6 +116,14 @@ public sealed class IntegrationJobExecutor(
                 else if (source.Type == ConnectorType.Sftp && destination.Type == ConnectorType.Path)
                 {
                     processed = await ExecuteSftpToPathAsync(source, destination, job.Id, run.Id);
+                }
+                else if (source.Type == ConnectorType.SharePoint && IsSqlConnector(destination.Type))
+                {
+                    processed = await ExecuteSharePointToSqlAsync(source, destination, job, run.Id);
+                }
+                else if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.SharePoint)
+                {
+                    processed = await ExecuteSqlToSharePointAsync(source, destination, job, run.Id);
                 }
                 else
                 {
@@ -980,5 +994,479 @@ public sealed class IntegrationJobExecutor(
 
         await Task.Run(() => client.Disconnect());
         return processed;
+    }
+
+    private async Task<int> ExecuteSharePointToSqlAsync(
+        Connector source, 
+        Connector destination, 
+        IntegrationJob job, 
+        Guid runId)
+    {
+        var executingUserId = job.OwnerUserId ?? job.CreatorUserId;
+        if (executingUserId == null)
+        {
+            throw new InvalidOperationException("No owner or creator user is assigned to this job.");
+        }
+        var ownerUser = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == executingUserId);
+        if (ownerUser == null || string.IsNullOrEmpty(ownerUser.MicrosoftId))
+        {
+            throw new InvalidOperationException("Execution requires that the job owner's account be authenticated with Microsoft.");
+        }
+
+        var siteUrl = source.SharePointSiteUrl;
+        var listName = source.SharePointListName;
+        if (string.IsNullOrWhiteSpace(siteUrl) || string.IsNullOrWhiteSpace(listName))
+        {
+            throw new InvalidOperationException("SharePoint connector requires Site URL and List Name.");
+        }
+
+        await LogInfoAsync(job.Id, runId, $"Obtaining Microsoft access token for SharePoint site '{siteUrl}'...");
+        var token = await sharePointApiClient.GetAccessTokenAsync(siteUrl, CancellationToken.None);
+        await LogInfoAsync(job.Id, runId, "Access token obtained successfully.");
+
+        await LogInfoAsync(job.Id, runId, $"Fetching fields metadata for list '{listName}'...");
+        var fields = await sharePointApiClient.GetFieldsAsync(siteUrl, listName, token, CancellationToken.None);
+        await LogInfoAsync(job.Id, runId, $"Retrieved {fields.Count} field(s) from SharePoint list.");
+
+        var sqlConfig = GetSqlConfig(destination);
+        await LogInfoAsync(job.Id, runId, $"Connecting to destination SQL database '{destination.SqlDatabase}'...");
+        await using var destConn = await CreateAndOpenSqlConnectionAsync(destination);
+        await LogInfoAsync(job.Id, runId, "Connected to destination database successfully.");
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        client.DefaultRequestHeaders.Accept.Clear();
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json;odata=verbose");
+
+        var uri = new Uri(siteUrl);
+        var absolutePath = uri.AbsolutePath.TrimEnd('/');
+        var targetUrl = $"{uri.Scheme}://{uri.Host}{absolutePath}/_api/web/lists/GetByTitle('{Uri.EscapeDataString(listName)}')/items?$select=*";
+
+        var expands = new List<string>();
+        var extraSelects = new List<string>();
+        foreach (var f in fields)
+        {
+            if (f.TypeAsString == "User" || f.TypeAsString == "UserMulti")
+            {
+                extraSelects.Add($"{f.InternalName}/EMail");
+                extraSelects.Add($"{f.InternalName}/Title");
+                expands.Add(f.InternalName);
+            }
+            else if (f.TypeAsString == "Lookup" || f.TypeAsString == "LookupMulti")
+            {
+                extraSelects.Add($"{f.InternalName}/Title");
+                expands.Add(f.InternalName);
+            }
+        }
+        if (extraSelects.Count > 0)
+        {
+            targetUrl += "," + string.Join(",", extraSelects);
+        }
+        if (expands.Count > 0)
+        {
+            targetUrl += "&$expand=" + string.Join(",", expands);
+        }
+
+        await LogInfoAsync(job.Id, runId, $"Requesting items from SharePoint: {targetUrl}");
+        var response = await client.GetAsync(targetUrl);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException($"Failed to fetch list items from SharePoint: {response.StatusCode} - {err}");
+        }
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var itemsList = new List<JsonElement>();
+
+        if (doc.RootElement.TryGetProperty("d", out var dProp) && dProp.TryGetProperty("results", out var resultsProp))
+        {
+            foreach (var item in resultsProp.EnumerateArray())
+            {
+                itemsList.Add(item);
+            }
+        }
+
+        await LogInfoAsync(job.Id, runId, $"Fetched {itemsList.Count} items from SharePoint list.");
+
+        int totalProcessed = 0;
+        foreach (var table in sqlConfig.Tables)
+        {
+            await LogInfoAsync(job.Id, runId, $"Writing to destination SQL table '{table.Name}'...");
+            await EnsureTargetTableExistsAsync(destConn, destConn, destination.Type, destination.Type, table, job.Id, runId);
+
+            var dbColumns = await GetTableColumnsAsync(destConn, destination.Type, table.Name);
+
+            var columnMappings = new List<(string SqlColumn, Func<JsonElement, object?> MapValue)>();
+
+            foreach (var fieldName in table.Fields)
+            {
+                var sqlColName = dbColumns.TryGetValue(fieldName, out var dbColInfo) ? dbColInfo.ExactName : fieldName;
+
+                var matchedField = fields.FirstOrDefault(f => 
+                    string.Equals(f.InternalName, fieldName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(f.Title, fieldName, StringComparison.OrdinalIgnoreCase));
+
+                if (matchedField != null)
+                {
+                    columnMappings.Add((sqlColName, item => ExtractSharePointValue(item, matchedField)));
+                }
+                else
+                {
+                    var matchedSuffixField = fields.FirstOrDefault(f => 
+                        fieldName.StartsWith(f.InternalName, StringComparison.OrdinalIgnoreCase) ||
+                        fieldName.StartsWith(f.Title, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchedSuffixField != null)
+                    {
+                        var suffix = fieldName.Substring(matchedSuffixField.InternalName.Length);
+                        if (string.IsNullOrEmpty(suffix))
+                        {
+                            suffix = fieldName.Substring(matchedSuffixField.Title.Length);
+                        }
+
+                        columnMappings.Add((sqlColName, item => ExtractSharePointSuffixValue(item, matchedSuffixField, suffix)));
+                    }
+                    else
+                    {
+                        columnMappings.Add((sqlColName, item => 
+                        {
+                            if (item.TryGetProperty(fieldName, out var val))
+                            {
+                                return GetJsonValue(val);
+                            }
+                            return null;
+                        }));
+                    }
+                }
+            }
+
+            var destFieldsSql = string.Join(", ", columnMappings.Select(m => QuoteIdentifier(destination.Type, m.SqlColumn)));
+            var placeholders = string.Join(", ", columnMappings.Select((_, i) => $"@p{i}"));
+            var destTable = QuoteIdentifier(destination.Type, table.Name);
+            var insertSql = $"INSERT INTO {destTable} ({destFieldsSql}) VALUES ({placeholders})";
+
+            int tableCount = 0;
+            foreach (var item in itemsList)
+            {
+                await using var insertCmd = destConn.CreateCommand();
+                insertCmd.CommandText = insertSql;
+
+                for (int i = 0; i < columnMappings.Count; i++)
+                {
+                    var param = insertCmd.CreateParameter();
+                    param.ParameterName = $"@p{i}";
+                    var val = columnMappings[i].MapValue(item);
+                    param.Value = val ?? DBNull.Value;
+                    insertCmd.Parameters.Add(param);
+                }
+
+                await insertCmd.ExecuteNonQueryAsync();
+                tableCount++;
+            }
+
+            await LogInfoAsync(job.Id, runId, $"Wrote {tableCount} record(s) to table '{table.Name}'.");
+            totalProcessed += tableCount;
+        }
+
+        return totalProcessed;
+    }
+
+    private object? ExtractSharePointValue(JsonElement item, SharePointFieldDto field)
+    {
+        if (field.TypeAsString == "User" || field.TypeAsString == "UserMulti")
+        {
+            if (item.TryGetProperty(field.InternalName, out var userProp) && userProp.ValueKind == JsonValueKind.Object)
+            {
+                if (userProp.TryGetProperty("EMail", out var emailProp)) return emailProp.GetString();
+                if (userProp.TryGetProperty("Title", out var titleProp)) return titleProp.GetString();
+            }
+            if (item.TryGetProperty($"{field.InternalName}Id", out var idProp))
+            {
+                return GetJsonValue(idProp);
+            }
+        }
+        else if (field.TypeAsString == "Lookup" || field.TypeAsString == "LookupMulti")
+        {
+            if (item.TryGetProperty(field.InternalName, out var lookupProp) && lookupProp.ValueKind == JsonValueKind.Object)
+            {
+                if (lookupProp.TryGetProperty("Title", out var titleProp)) return titleProp.GetString();
+            }
+            if (item.TryGetProperty($"{field.InternalName}Id", out var idProp))
+            {
+                return GetJsonValue(idProp);
+            }
+        }
+
+        if (item.TryGetProperty(field.InternalName, out var val))
+        {
+            return GetJsonValue(val);
+        }
+        return null;
+    }
+
+    private object? ExtractSharePointSuffixValue(JsonElement item, SharePointFieldDto field, string suffix)
+    {
+        if (string.Equals(suffix, "Id", StringComparison.OrdinalIgnoreCase))
+        {
+            if (item.TryGetProperty($"{field.InternalName}Id", out var idProp)) return GetJsonValue(idProp);
+            if (item.TryGetProperty(field.InternalName, out var val) && val.TryGetProperty("Id", out var nestedId)) return GetJsonValue(nestedId);
+        }
+        else if (string.Equals(suffix, "Email", StringComparison.OrdinalIgnoreCase) || string.Equals(suffix, "EMail", StringComparison.OrdinalIgnoreCase))
+        {
+            if (item.TryGetProperty(field.InternalName, out var val) && val.TryGetProperty("EMail", out var nestedEmail)) return nestedEmail.GetString();
+        }
+        else if (string.Equals(suffix, "Name", StringComparison.OrdinalIgnoreCase) || string.Equals(suffix, "Title", StringComparison.OrdinalIgnoreCase))
+        {
+            if (item.TryGetProperty(field.InternalName, out var val) && val.TryGetProperty("Title", out var nestedTitle)) return nestedTitle.GetString();
+        }
+
+        return ExtractSharePointValue(item, field);
+    }
+
+    private object? GetJsonValue(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.TryGetInt64(out long l) ? l : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+        };
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _sharePointUserCache = new();
+
+    private async Task<int?> GetSharePointUserIdAsync(string siteUrl, string email, string token)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return null;
+        email = email.Trim();
+        if (_sharePointUserCache.TryGetValue(email, out var cachedId)) return cachedId;
+
+        try
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json;odata=verbose");
+
+            var uri = new Uri(siteUrl);
+            var absolutePath = uri.AbsolutePath.TrimEnd('/');
+            var targetUrl = $"{uri.Scheme}://{uri.Host}{absolutePath}/_api/web/siteusers/getByEmail('{Uri.EscapeDataString(email)}')?$select=Id";
+
+            var response = await client.GetAsync(targetUrl);
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("d", out var dProp) && dProp.TryGetProperty("Id", out var idProp))
+                {
+                    var id = idProp.GetInt32();
+                    _sharePointUserCache[email] = id;
+                    return id;
+                }
+            }
+        }
+        catch
+        {
+            // Fall through
+        }
+        return null;
+    }
+
+    private async Task<string> GetSharePointListItemEntityTypeAsync(string siteUrl, string listName, string token)
+    {
+        try
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json;odata=verbose");
+
+            var uri = new Uri(siteUrl);
+            var absolutePath = uri.AbsolutePath.TrimEnd('/');
+            var targetUrl = $"{uri.Scheme}://{uri.Host}{absolutePath}/_api/web/lists/GetByTitle('{Uri.EscapeDataString(listName)}')?$select=ListItemEntityTypeFullName";
+
+            var response = await client.GetAsync(targetUrl);
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("d", out var dProp) && dProp.TryGetProperty("ListItemEntityTypeFullName", out var typeProp))
+                {
+                    return typeProp.GetString() ?? $"SP.Data.{listName.Replace(" ", "_x0020_")}ListItem";
+                }
+            }
+        }
+        catch
+        {
+            // Fall through
+        }
+        return $"SP.Data.{listName.Replace(" ", "_x0020_")}ListItem";
+    }
+
+    private async Task<int> ExecuteSqlToSharePointAsync(
+        Connector source, 
+        Connector destination, 
+        IntegrationJob job, 
+        Guid runId)
+    {
+        var executingUserId = job.OwnerUserId ?? job.CreatorUserId;
+        if (executingUserId == null)
+        {
+            throw new InvalidOperationException("No owner or creator user is assigned to this job.");
+        }
+        var ownerUser = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == executingUserId);
+        if (ownerUser == null || string.IsNullOrEmpty(ownerUser.MicrosoftId))
+        {
+            throw new InvalidOperationException("Execution requires that the job owner's account be authenticated with Microsoft.");
+        }
+
+        var siteUrl = destination.SharePointSiteUrl;
+        var listName = destination.SharePointListName;
+        if (string.IsNullOrWhiteSpace(siteUrl) || string.IsNullOrWhiteSpace(listName))
+        {
+            throw new InvalidOperationException("SharePoint connector requires Site URL and List Name.");
+        }
+
+        await LogInfoAsync(job.Id, runId, $"Obtaining Microsoft access token for SharePoint site '{siteUrl}'...");
+        var token = await sharePointApiClient.GetAccessTokenAsync(siteUrl, CancellationToken.None);
+        await LogInfoAsync(job.Id, runId, "Access token obtained successfully.");
+
+        await LogInfoAsync(job.Id, runId, $"Fetching fields metadata for list '{listName}'...");
+        var fields = await sharePointApiClient.GetFieldsAsync(siteUrl, listName, token, CancellationToken.None);
+        await LogInfoAsync(job.Id, runId, $"Retrieved {fields.Count} field(s) from SharePoint list.");
+
+        await LogInfoAsync(job.Id, runId, $"Fetching list entity type name...");
+        var listItemEntityType = await GetSharePointListItemEntityTypeAsync(siteUrl, listName, token);
+        await LogInfoAsync(job.Id, runId, $"Entity type name is '{listItemEntityType}'.");
+
+        var sqlConfig = GetSqlConfig(source);
+        await LogInfoAsync(job.Id, runId, $"Connecting to source SQL database '{source.SqlDatabase}'...");
+        await using var sourceConn = await CreateAndOpenSqlConnectionAsync(source);
+        await LogInfoAsync(job.Id, runId, "Connected to source database successfully.");
+
+        int totalProcessed = 0;
+        foreach (var table in sqlConfig.Tables)
+        {
+            await LogInfoAsync(job.Id, runId, $"Reading from SQL table '{table.Name}'...");
+            
+            var fieldsToRead = string.Join(", ", table.Fields.Select(f => QuoteIdentifier(source.Type, f)));
+            var sourceTable = QuoteIdentifier(source.Type, table.Name);
+
+            await using var selectCmd = sourceConn.CreateCommand();
+            selectCmd.CommandText = $"SELECT {fieldsToRead} FROM {sourceTable}";
+
+            await using var reader = await selectCmd.ExecuteReaderAsync();
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            
+            var uri = new Uri(siteUrl);
+            var absolutePath = uri.AbsolutePath.TrimEnd('/');
+            var postUrl = $"{uri.Scheme}://{uri.Host}{absolutePath}/_api/web/lists/GetByTitle('{Uri.EscapeDataString(listName)}')/items";
+
+            int tableCount = 0;
+            while (await reader.ReadAsync())
+            {
+                var payload = new Dictionary<string, object>();
+                payload["__metadata"] = new Dictionary<string, string> { { "type", listItemEntityType } };
+
+                for (int i = 0; i < table.Fields.Count; i++)
+                {
+                    var sqlColName = table.Fields[i];
+                    var val = reader[i];
+                    if (val == null || val == DBNull.Value) continue;
+
+                    var matchedField = fields.FirstOrDefault(f => 
+                        string.Equals(f.InternalName, sqlColName, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(f.Title, sqlColName, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchedField != null)
+                    {
+                        if (matchedField.TypeAsString == "User" || matchedField.TypeAsString == "UserMulti")
+                        {
+                            if (val is int intUserId)
+                            {
+                                payload[$"{matchedField.InternalName}Id"] = intUserId;
+                            }
+                            else if (val is string emailStr)
+                            {
+                                var spUserId = await GetSharePointUserIdAsync(siteUrl, emailStr, token);
+                                if (spUserId.HasValue)
+                                {
+                                    payload[$"{matchedField.InternalName}Id"] = spUserId.Value;
+                                }
+                            }
+                        }
+                        else if (matchedField.TypeAsString == "Lookup" || matchedField.TypeAsString == "LookupMulti")
+                        {
+                            if (val is int intLookupId)
+                            {
+                                payload[$"{matchedField.InternalName}Id"] = intLookupId;
+                            }
+                            else if (int.TryParse(val.ToString(), out var parsedId))
+                            {
+                                payload[$"{matchedField.InternalName}Id"] = parsedId;
+                            }
+                        }
+                        else if (matchedField.TypeAsString == "Boolean")
+                        {
+                            payload[matchedField.InternalName] = Convert.ToBoolean(val);
+                        }
+                        else if (matchedField.TypeAsString == "Number")
+                        {
+                            payload[matchedField.InternalName] = Convert.ToDouble(val);
+                        }
+                        else if (matchedField.TypeAsString == "DateTime")
+                        {
+                            if (val is DateTime dt)
+                            {
+                                payload[matchedField.InternalName] = dt.ToString("o");
+                            }
+                            else if (val is DateTimeOffset dto)
+                            {
+                                payload[matchedField.InternalName] = dto.ToString("o");
+                            }
+                            else
+                            {
+                                payload[matchedField.InternalName] = val.ToString()!;
+                            }
+                        }
+                        else
+                        {
+                            payload[matchedField.InternalName] = val.ToString()!;
+                        }
+                    }
+                    else
+                    {
+                        payload[sqlColName] = val.ToString()!;
+                    }
+                }
+
+                using var requestMsg = new HttpRequestMessage(HttpMethod.Post, postUrl);
+                requestMsg.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                requestMsg.Headers.Accept.ParseAdd("application/json;odata=verbose");
+                
+                var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json;odata=verbose");
+                requestMsg.Content = content;
+
+                var postResponse = await client.SendAsync(requestMsg);
+                if (!postResponse.IsSuccessStatusCode)
+                {
+                    var postErr = await postResponse.Content.ReadAsStringAsync();
+                    throw new InvalidOperationException($"Failed to write item to SharePoint: {postResponse.StatusCode} - {postErr}");
+                }
+
+                tableCount++;
+            }
+
+            await LogInfoAsync(job.Id, runId, $"Wrote {tableCount} record(s) from SQL table '{table.Name}' to SharePoint list.");
+            totalProcessed += tableCount;
+        }
+
+        return totalProcessed;
     }
 }

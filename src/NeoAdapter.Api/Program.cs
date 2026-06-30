@@ -159,6 +159,9 @@ using (var scope = app.Services.CreateScope())
         try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sftp_username character varying(255);"); } catch {}
         try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sftp_password character varying(255);"); } catch {}
         try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sftp_remote_path character varying(1000);"); } catch {}
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sharepoint_site_url character varying(1000);"); } catch {}
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sharepoint_list_name character varying(255);"); } catch {}
+        try { await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS sharepoint_config_json jsonb;"); } catch {}
 
 
         await dbContext.Database.ExecuteSqlRawAsync(@"

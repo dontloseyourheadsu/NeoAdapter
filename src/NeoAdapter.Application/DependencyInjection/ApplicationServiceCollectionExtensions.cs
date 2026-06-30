@@ -14,6 +14,7 @@ public static class ApplicationServiceCollectionExtensions
     {
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IConnectorService, ConnectorService>();
+        services.AddScoped<ISharePointApiClient, SharePointApiClient>();
         services.AddScoped<ISqlEditorService, SqlEditorService>();
         services.AddScoped<IIntegrationJobService, IntegrationJobService>();
         services.AddScoped<IIntegrationJobExecutor, IntegrationJobExecutor>();
