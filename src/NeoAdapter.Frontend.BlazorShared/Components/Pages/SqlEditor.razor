@@ -341,8 +341,12 @@
                     }
                     else if (!string.IsNullOrEmpty(_queryResult.ExplainPlan))
                     {
-                        <div>
-                            <pre>@_queryResult.ExplainPlan</pre>
+                        <div style="border: 1px solid var(--violet-300); border-radius: var(--radius); background: #0c0d12; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                            <div style="padding: 10px 16px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-family: var(--font-display); font-size: 12px; font-weight: bold; color: var(--violet-300); letter-spacing: 0.05em; text-transform: uppercase;">📋 Query Execution Plan</span>
+                                <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">FORMAT: TEXT</span>
+                            </div>
+                            <pre style="margin: 0; padding: 16px; font-family: var(--font-mono); font-size: 12.5px; color: #66fcf1; overflow-x: auto; white-space: pre-wrap; line-height: 1.5; max-height: 380px;">@_queryResult.ExplainPlan</pre>
                         </div>
                     }
                     else
