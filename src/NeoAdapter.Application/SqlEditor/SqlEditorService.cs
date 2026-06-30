@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -101,7 +102,109 @@ public sealed class SqlEditorService(
         await using (connection)
         {
             await connection.OpenAsync(cancellationToken);
+
+            if (request.ExplainOnly)
+            {
+                var dbType = request.ConnectorId.HasValue
+                    ? await GetConnectorTypeAsync(request.ConnectorId.Value, cancellationToken)
+                    : request.Type!.Value;
+                return await ExecuteExplainQueryAsync(connection, dbType, request.Query, cancellationToken);
+            }
+
             return await ExecuteQueryInternalAsync(connection, request.Query, cancellationToken);
+        }
+    }
+
+    private async Task<QueryResultDto> ExecuteExplainQueryAsync(
+        DbConnection connection,
+        ConnectorType type,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        return type switch
+        {
+            ConnectorType.Postgres => await ExecutePostgresExplainAsync(connection, query, cancellationToken),
+            ConnectorType.SqlServer => await ExecuteSqlServerExplainAsync(connection, query, cancellationToken),
+            _ => throw new InvalidOperationException("Unsupported database type for explain query.")
+        };
+    }
+
+    private async Task<QueryResultDto> ExecutePostgresExplainAsync(
+        DbConnection connection,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        var explainQuery = $"EXPLAIN {query}";
+        var result = await ExecuteQueryInternalAsync(connection, explainQuery, cancellationToken);
+        if (result.ErrorMessage != null)
+        {
+            return result;
+        }
+
+        var planBuilder = new StringBuilder();
+        foreach (var row in result.Rows)
+        {
+            if (row.Count > 0 && row[0] != null)
+            {
+                planBuilder.AppendLine(row[0]!.ToString());
+            }
+        }
+
+        return new QueryResultDto(
+            Columns: Array.Empty<string>(),
+            Rows: Array.Empty<IReadOnlyList<object?>>(),
+            RowsAffected: -1,
+            ExplainPlan: planBuilder.ToString()
+        );
+    }
+
+    private async Task<QueryResultDto> ExecuteSqlServerExplainAsync(
+        DbConnection connection,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var showplanOnCmd = connection.CreateCommand();
+            showplanOnCmd.CommandText = "SET SHOWPLAN_TEXT ON;";
+            await showplanOnCmd.ExecuteNonQueryAsync(cancellationToken);
+
+            var planBuilder = new StringBuilder();
+            try
+            {
+                await using var queryCmd = connection.CreateCommand();
+                queryCmd.CommandText = query;
+                await using var reader = await queryCmd.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    if (reader.FieldCount > 0 && !reader.IsDBNull(0))
+                    {
+                        planBuilder.AppendLine(reader.GetString(0));
+                    }
+                }
+            }
+            finally
+            {
+                await using var showplanOffCmd = connection.CreateCommand();
+                showplanOffCmd.CommandText = "SET SHOWPLAN_TEXT OFF;";
+                await showplanOffCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            return new QueryResultDto(
+                Columns: Array.Empty<string>(),
+                Rows: Array.Empty<IReadOnlyList<object?>>(),
+                RowsAffected: -1,
+                ExplainPlan: planBuilder.ToString()
+            );
+        }
+        catch (Exception ex)
+        {
+            return new QueryResultDto(
+                Columns: Array.Empty<string>(),
+                Rows: Array.Empty<IReadOnlyList<object?>>(),
+                RowsAffected: -1,
+                ErrorMessage: ex.Message
+            );
         }
     }
 
@@ -307,7 +410,9 @@ public sealed class SqlEditorService(
             Database = sql.Database,
             Username = sql.Username,
             Password = sql.Password,
+#pragma warning disable CS0618
             TrustServerCertificate = sql.TrustServerCertificate,
+#pragma warning restore CS0618
             Timeout = 20
         };
 
@@ -348,7 +453,9 @@ public sealed class SqlEditorService(
                 Database: builder.Database ?? string.Empty,
                 Username: builder.Username ?? string.Empty,
                 Password: builder.Password ?? string.Empty,
+#pragma warning disable CS0618
                 TrustServerCertificate: builder.TrustServerCertificate
+#pragma warning restore CS0618
             );
         }
         else

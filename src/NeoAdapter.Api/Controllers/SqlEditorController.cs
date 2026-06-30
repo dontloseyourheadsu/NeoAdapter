@@ -63,6 +63,7 @@ public sealed class SqlEditorController(ISqlEditorService sqlEditorService, NeoA
 
         try
         {
+            // Execute query (or retrieve execution plan if ExplainOnly is true)
             var response = await sqlEditorService.ExecuteQueryAsync(
                 request,
                 user.Id,

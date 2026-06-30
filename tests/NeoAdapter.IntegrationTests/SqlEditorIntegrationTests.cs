@@ -126,7 +126,15 @@ public class SqlEditorIntegrationTests : IAsyncLifetime
         queryResult.Rows[0][0].Should().Be(1);
         queryResult.Rows[0][1].Should().Be("Alice");
 
-        // Act & Assert 3: Block Invalid Query
+        // Act & Assert 3: Explain Query
+        var explainReq = queryReq with { ExplainOnly = true };
+        var explainResult = await service.ExecuteQueryAsync(explainReq, Guid.NewGuid(), Guid.NewGuid(), null, "User", true, true, false, default);
+
+        explainResult.ErrorMessage.Should().BeNull();
+        explainResult.ExplainPlan.Should().NotBeNullOrEmpty();
+        explainResult.ExplainPlan.Should().Contain("editor_table");
+
+        // Act & Assert 4: Block Invalid Query
         var invalidReq = queryReq with { Query = "DELETE FROM editor_table" };
         var invalidResult = await service.ExecuteQueryAsync(invalidReq, Guid.NewGuid(), Guid.NewGuid(), null, "User", true, true, false, default);
 
@@ -211,7 +219,15 @@ public class SqlEditorIntegrationTests : IAsyncLifetime
         queryResult.Rows[0][0].Should().Be(1);
         queryResult.Rows[0][1].Should().Be("Charlie");
 
-        // Act & Assert 3: Block Invalid Query
+        // Act & Assert 3: Explain Query
+        var explainReq = queryReq with { ExplainOnly = true };
+        var explainResult = await service.ExecuteQueryAsync(explainReq, Guid.NewGuid(), Guid.NewGuid(), null, "User", true, true, false, default);
+
+        explainResult.ErrorMessage.Should().BeNull();
+        explainResult.ExplainPlan.Should().NotBeNullOrEmpty();
+        explainResult.ExplainPlan.Should().Contain("Scan");
+
+        // Act & Assert 4: Block Invalid Query
         var invalidReq = queryReq with { Query = "DROP TABLE editor_table" };
         var invalidResult = await service.ExecuteQueryAsync(invalidReq, Guid.NewGuid(), Guid.NewGuid(), null, "User", true, true, false, default);
 

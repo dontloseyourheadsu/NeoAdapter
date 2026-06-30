@@ -292,7 +292,10 @@
                     <textarea @bind="_queryText" style="width: 100%; height: 160px; font-family: var(--font-mono); font-size: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: #0b0c10; color: #66fcf1; resize: vertical;" placeholder="-- Enter SQL Query here (e.g. SELECT * FROM table;)" disabled="@(!_isConnected)"></textarea>
                     
                     <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
-                        <button class="btn-primary" @onclick="ExecuteQuery" disabled="@(!_isConnected || string.IsNullOrWhiteSpace(_queryText) || _isExecuting)">
+                        <button class="btn-ghost" style="border: 1px solid var(--border);" @onclick="() => ExecuteQuery(true)" disabled="@(!_isConnected || string.IsNullOrWhiteSpace(_queryText) || _isExecuting)">
+                            🔍 Explain Query
+                        </button>
+                        <button class="btn-primary" @onclick="() => ExecuteQuery(false)" disabled="@(!_isConnected || string.IsNullOrWhiteSpace(_queryText) || _isExecuting)">
                             @(_isExecuting ? "Executing..." : "▶ Run Query")
                         </button>
                     </div>
@@ -334,6 +337,16 @@
                     {
                         <div style="color: var(--violet-300); font-size: 13px; text-align: center; padding: 40px 0; font-family: var(--font-mono);">
                             Query executed successfully. Affected rows: @_queryResult.RowsAffected.
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(_queryResult.ExplainPlan))
+                    {
+                        <div style="border: 1px solid var(--violet-300); border-radius: var(--radius); background: #0c0d12; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                            <div style="padding: 10px 16px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-family: var(--font-display); font-size: 12px; font-weight: bold; color: var(--violet-300); letter-spacing: 0.05em; text-transform: uppercase;">📋 Query Execution Plan</span>
+                                <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">FORMAT: TEXT</span>
+                            </div>
+                            <pre style="margin: 0; padding: 16px; font-family: var(--font-mono); font-size: 12.5px; color: #66fcf1; overflow-x: auto; white-space: pre-wrap; line-height: 1.5; max-height: 380px;">@_queryResult.ExplainPlan</pre>
                         </div>
                     }
                     else
@@ -532,7 +545,7 @@
         }
     }
 
-    private async Task ExecuteQuery()
+    private async Task ExecuteQuery(bool explainOnly = false)
     {
         if (!_isConnected) return;
         
@@ -546,11 +559,11 @@
             ExecuteQueryRequest request;
             if (_selectedSourceType == "saved")
             {
-                request = new ExecuteQueryRequest(_selectedConnectorId, null, null, null, _queryText, false, null);
+                request = new ExecuteQueryRequest(_selectedConnectorId, null, null, null, _queryText, false, null, explainOnly);
             }
             else if (_selectedSourceType == "string")
             {
-                request = new ExecuteQueryRequest(null, _rawConnectionString, null, _manualType, _queryText, false, null);
+                request = new ExecuteQueryRequest(null, _rawConnectionString, null, _manualType, _queryText, false, null, explainOnly);
             }
             else // manual
             {
@@ -562,7 +575,7 @@
                     _manualPassword,
                     _manualTrustCert
                 );
-                request = new ExecuteQueryRequest(null, null, settings, _manualType, _queryText, false, null);
+                request = new ExecuteQueryRequest(null, null, settings, _manualType, _queryText, false, null, explainOnly);
             }
 
             var result = await SqlEditorApiClient.ExecuteQueryAsync(request, CancellationToken.None);

@@ -39,12 +39,14 @@ public sealed record ExecuteQueryRequest(
     ConnectorType? Type,
     string Query,
     bool SaveConnection,
-    string? ConnectionName
+    string? ConnectionName,
+    bool ExplainOnly = false
 );
 
 public sealed record QueryResultDto(
     IReadOnlyList<string> Columns,
     IReadOnlyList<IReadOnlyList<object?>> Rows,
     int RowsAffected,
-    string? ErrorMessage = null
+    string? ErrorMessage = null,
+    string? ExplainPlan = null
 );
