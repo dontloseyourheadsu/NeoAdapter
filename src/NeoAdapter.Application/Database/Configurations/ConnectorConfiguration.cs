@@ -94,6 +94,18 @@ public sealed class ConnectorConfiguration : IEntityTypeConfiguration<Connector>
             .HasColumnName("sftp_remote_path")
             .HasMaxLength(1000);
 
+        builder.Property(connector => connector.SharePointSiteUrl)
+            .HasColumnName("sharepoint_site_url")
+            .HasMaxLength(1000);
+
+        builder.Property(connector => connector.SharePointListName)
+            .HasColumnName("sharepoint_list_name")
+            .HasMaxLength(255);
+
+        builder.Property(connector => connector.SharePointConfigJson)
+            .HasColumnName("sharepoint_config_json")
+            .HasColumnType("jsonb");
+
 
         builder.Property(connector => connector.CreatedAtUtc)
             .HasColumnName("created_at_utc")
