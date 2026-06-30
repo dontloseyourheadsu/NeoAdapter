@@ -134,9 +134,28 @@ public sealed class SqlEditorService(
         string query,
         CancellationToken cancellationToken)
     {
-        // Placeholder to be implemented in subsequent commits
-        await Task.CompletedTask;
-        return new QueryResultDto(Array.Empty<string>(), Array.Empty<IReadOnlyList<object?>>(), 0);
+        var explainQuery = $"EXPLAIN {query}";
+        var result = await ExecuteQueryInternalAsync(connection, explainQuery, cancellationToken);
+        if (result.ErrorMessage != null)
+        {
+            return result;
+        }
+
+        var planBuilder = new StringBuilder();
+        foreach (var row in result.Rows)
+        {
+            if (row.Count > 0 && row[0] != null)
+            {
+                planBuilder.AppendLine(row[0]!.ToString());
+            }
+        }
+
+        return new QueryResultDto(
+            Columns: Array.Empty<string>(),
+            Rows: Array.Empty<IReadOnlyList<object?>>(),
+            RowsAffected: -1,
+            ExplainPlan: planBuilder.ToString()
+        );
     }
 
     private async Task<QueryResultDto> ExecuteSqlServerExplainAsync(
