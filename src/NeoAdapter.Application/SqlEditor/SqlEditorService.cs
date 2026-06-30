@@ -410,7 +410,9 @@ public sealed class SqlEditorService(
             Database = sql.Database,
             Username = sql.Username,
             Password = sql.Password,
+#pragma warning disable CS0618
             TrustServerCertificate = sql.TrustServerCertificate,
+#pragma warning restore CS0618
             Timeout = 20
         };
 
@@ -451,7 +453,9 @@ public sealed class SqlEditorService(
                 Database: builder.Database ?? string.Empty,
                 Username: builder.Username ?? string.Empty,
                 Password: builder.Password ?? string.Empty,
+#pragma warning disable CS0618
                 TrustServerCertificate: builder.TrustServerCertificate
+#pragma warning restore CS0618
             );
         }
         else
