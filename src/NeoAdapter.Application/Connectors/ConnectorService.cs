@@ -14,7 +14,8 @@ namespace NeoAdapter.Application.Connectors;
 
 public sealed class ConnectorService(
     NeoAdapterDbContext dbContext,
-    ISqlSecretProtector sqlSecretProtector) : IConnectorService
+    ISqlSecretProtector sqlSecretProtector,
+    ISharePointApiClient sharePointApiClient) : IConnectorService
 {
     private class SqlTableConfig
     {
@@ -163,6 +164,33 @@ public sealed class ConnectorService(
             connector.SftpPassword = sqlSecretProtector.Protect(request.Sftp.Password);
             connector.SftpRemotePath = request.Sftp.RemotePath.Trim();
         }
+        else if (request.Type == ConnectorTypeContract.SharePoint)
+        {
+            var user = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            if (user == null || string.IsNullOrEmpty(user.MicrosoftId))
+            {
+                throw new InvalidOperationException("Creating a SharePoint connector requires that your account be authenticated with Microsoft.");
+            }
+
+            if (request.SharePoint is null)
+            {
+                throw new InvalidOperationException("SharePoint connector settings are required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.SharePoint.SiteUrl))
+            {
+                throw new InvalidOperationException("SharePoint Site URL is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.SharePoint.ListName))
+            {
+                throw new InvalidOperationException("SharePoint List Name is required.");
+            }
+
+            connector.SharePointSiteUrl = request.SharePoint.SiteUrl.Trim();
+            connector.SharePointListName = request.SharePoint.ListName.Trim();
+            connector.SharePointConfigJson = request.SharePoint.ConfigJson;
+        }
         else
         {
             throw new InvalidOperationException("Unsupported connector type.");
@@ -270,7 +298,7 @@ public sealed class ConnectorService(
         return result;
     }
 
-    public async Task<TestConnectorResponse> TestAsync(TestConnectorRequest request, CancellationToken cancellationToken)
+    public async Task<TestConnectorResponse> TestAsync(TestConnectorRequest request, Guid userId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -404,6 +432,30 @@ public sealed class ConnectorService(
                 return new TestConnectorResponse(false, $"SFTP connection test failed: {ex.Message}", DateTimeOffset.UtcNow);
             }
         }
+        else if (request.Type == ConnectorTypeContract.SharePoint)
+        {
+            if (request.SharePoint is null)
+            {
+                throw new InvalidOperationException("SharePoint connector settings are required.");
+            }
+
+            var user = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            if (user == null || string.IsNullOrEmpty(user.MicrosoftId))
+            {
+                throw new InvalidOperationException("Testing a SharePoint connector requires that your account be authenticated with Microsoft.");
+            }
+
+            try
+            {
+                var token = await sharePointApiClient.GetAccessTokenAsync(request.SharePoint.SiteUrl, cancellationToken);
+                var lists = await sharePointApiClient.GetListsAsync(request.SharePoint.SiteUrl, token, cancellationToken);
+                return new TestConnectorResponse(true, $"SharePoint connection succeeded. Found {lists.Count} list(s).", DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                return new TestConnectorResponse(false, $"SharePoint connection test failed: {ex.Message}", DateTimeOffset.UtcNow);
+            }
+        }
         else
         {
             throw new InvalidOperationException("Unsupported connector type.");
@@ -504,6 +556,15 @@ public sealed class ConnectorService(
                 connector.SftpRemotePath ?? string.Empty);
         }
 
+        SharePointConnectorSettingsDto? sharepointSettings = null;
+        if (connector.Type == ConnectorTypeDomain.SharePoint)
+        {
+            sharepointSettings = new SharePointConnectorSettingsDto(
+                connector.SharePointSiteUrl ?? string.Empty,
+                connector.SharePointListName ?? string.Empty,
+                connector.SharePointConfigJson);
+        }
+
         return new ConnectorDto(
             connector.Id,
             connector.Name,
@@ -513,6 +574,7 @@ public sealed class ConnectorService(
             excel,
             pathSettings,
             sftpSettings,
+            sharepointSettings,
             connector.CreatedAtUtc,
             connector.UpdatedAtUtc);
     }
@@ -525,6 +587,7 @@ public sealed class ConnectorService(
         ConnectorTypeContract.Excel => ConnectorTypeDomain.Excel,
         ConnectorTypeContract.Path => ConnectorTypeDomain.Path,
         ConnectorTypeContract.Sftp => ConnectorTypeDomain.Sftp,
+        ConnectorTypeContract.SharePoint => ConnectorTypeDomain.SharePoint,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
@@ -536,6 +599,7 @@ public sealed class ConnectorService(
         ConnectorTypeDomain.Excel => ConnectorTypeContract.Excel,
         ConnectorTypeDomain.Path => ConnectorTypeContract.Path,
         ConnectorTypeDomain.Sftp => ConnectorTypeContract.Sftp,
+        ConnectorTypeDomain.SharePoint => ConnectorTypeContract.SharePoint,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 

@@ -8,5 +8,5 @@ public interface IConnectorService
 
     Task<ConnectorDto> CreateAsync(CreateConnectorRequest request, Guid userId, Guid organizationId, Guid? groupId, string role, bool roleCreate, bool roleAdmin, CancellationToken cancellationToken);
 
-    Task<TestConnectorResponse> TestAsync(TestConnectorRequest request, CancellationToken cancellationToken);
+    Task<TestConnectorResponse> TestAsync(TestConnectorRequest request, Guid userId, CancellationToken cancellationToken);
 }
