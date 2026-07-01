@@ -61,6 +61,16 @@ public sealed class ConnectorApiClient(HttpClient httpClient)
         {
             return [];
         }
-        return await response.Content.ReadFromJsonAsync<IReadOnlyList<SharePointFieldDto>>(cancellationToken) ?? [];
+        return await response.Content.ReadFromJsonAsync<SharePointFieldDto[]>(cancellationToken) ?? Array.Empty<SharePointFieldDto>();
+    }
+
+    public async Task<IReadOnlyList<string>> GetOutlookCalendarsAsync(CancellationToken cancellationToken)
+    {
+        var response = await httpClient.GetAsync("api/connectors/outlook/calendars", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+        return await response.Content.ReadFromJsonAsync<IReadOnlyList<string>>(cancellationToken) ?? [];
     }
 }

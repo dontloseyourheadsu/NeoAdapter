@@ -2,6 +2,7 @@
 @using NeoAdapter.Contracts.Connectors
 @using NeoAdapter.Contracts.IntegrationJobs
 @using NeoAdapter.Frontend.BlazorShared.Services
+@using System.Text.Json
 @inject AppState AppState
 @inject ConnectorApiClient ConnectorApiClient
 @inject IntegrationJobsApiClient JobsApiClient
@@ -1530,18 +1531,19 @@
             {
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
-                if (root.TryGetProperty("subjectColumn", out var p)) _outlookColSubject = p.GetString() ?? _outlookColSubject;
-                if (root.TryGetProperty("bodyColumn", out var p)) _outlookColBody = p.GetString() ?? _outlookColBody;
-                if (root.TryGetProperty("startColumn", out var p)) _outlookColStart = p.GetString() ?? _outlookColStart;
-                if (root.TryGetProperty("endColumn", out var p)) _outlookColEnd = p.GetString() ?? _outlookColEnd;
-                if (root.TryGetProperty("locationColumn", out var p)) _outlookColLocation = p.GetString() ?? _outlookColLocation;
-                if (root.TryGetProperty("isAllDayColumn", out var p)) _outlookColIsAllDay = p.GetString() ?? _outlookColIsAllDay;
-                if (root.TryGetProperty("recurrenceTypeColumn", out var p)) _outlookColRecType = p.GetString() ?? _outlookColRecType;
-                if (root.TryGetProperty("recurrenceIntervalColumn", out var p)) _outlookColRecInterval = p.GetString() ?? _outlookColRecInterval;
-                if (root.TryGetProperty("recurrenceDaysOfWeekColumn", out var p)) _outlookColRecDays = p.GetString() ?? _outlookColRecDays;
-                if (root.TryGetProperty("recurrenceRangeTypeColumn", out var p)) _outlookColRecRange = p.GetString() ?? _outlookColRecRange;
-                if (root.TryGetProperty("recurrenceEndDateColumn", out var p)) _outlookColRecEnd = p.GetString() ?? _outlookColRecEnd;
-                if (root.TryGetProperty("recurrenceOccurrencesColumn", out var p)) _outlookColRecOcc = p.GetString() ?? _outlookColRecOcc;
+                JsonElement p;
+                if (root.TryGetProperty("subjectColumn", out p)) _outlookColSubject = p.GetString() ?? _outlookColSubject;
+                if (root.TryGetProperty("bodyColumn", out p)) _outlookColBody = p.GetString() ?? _outlookColBody;
+                if (root.TryGetProperty("startColumn", out p)) _outlookColStart = p.GetString() ?? _outlookColStart;
+                if (root.TryGetProperty("endColumn", out p)) _outlookColEnd = p.GetString() ?? _outlookColEnd;
+                if (root.TryGetProperty("locationColumn", out p)) _outlookColLocation = p.GetString() ?? _outlookColLocation;
+                if (root.TryGetProperty("isAllDayColumn", out p)) _outlookColIsAllDay = p.GetString() ?? _outlookColIsAllDay;
+                if (root.TryGetProperty("recurrenceTypeColumn", out p)) _outlookColRecType = p.GetString() ?? _outlookColRecType;
+                if (root.TryGetProperty("recurrenceIntervalColumn", out p)) _outlookColRecInterval = p.GetString() ?? _outlookColRecInterval;
+                if (root.TryGetProperty("recurrenceDaysOfWeekColumn", out p)) _outlookColRecDays = p.GetString() ?? _outlookColRecDays;
+                if (root.TryGetProperty("recurrenceRangeTypeColumn", out p)) _outlookColRecRange = p.GetString() ?? _outlookColRecRange;
+                if (root.TryGetProperty("recurrenceEndDateColumn", out p)) _outlookColRecEnd = p.GetString() ?? _outlookColRecEnd;
+                if (root.TryGetProperty("recurrenceOccurrencesColumn", out p)) _outlookColRecOcc = p.GetString() ?? _outlookColRecOcc;
             }
             catch {}
         }
