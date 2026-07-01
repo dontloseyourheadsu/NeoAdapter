@@ -24,7 +24,8 @@ namespace NeoAdapter.Application.IntegrationJobs;
 public sealed class IntegrationJobExecutor(
     NeoAdapterDbContext dbContext,
     ISqlSecretProtector sqlSecretProtector,
-    ISharePointApiClient sharePointApiClient) : IIntegrationJobExecutor
+    ISharePointApiClient sharePointApiClient,
+    IOutlookCalendarApiClient outlookCalendarApiClient) : IIntegrationJobExecutor
 {
     private class SqlTableConfig
     {
@@ -124,6 +125,10 @@ public sealed class IntegrationJobExecutor(
                 else if (IsSqlConnector(source.Type) && destination.Type == ConnectorType.SharePoint)
                 {
                     processed = await ExecuteSqlToSharePointAsync(source, destination, job, run.Id);
+                }
+                else if (destination.Type == ConnectorType.OutlookCalendar)
+                {
+                    processed = await ExecuteSourceToOutlookCalendarAsync(source, destination, job, run.Id);
                 }
                 else
                 {
@@ -1468,5 +1473,307 @@ public sealed class IntegrationJobExecutor(
         }
 
         return totalProcessed;
+    }
+
+    private async Task<int> ExecuteSourceToOutlookCalendarAsync(
+        Connector source, 
+        Connector destination, 
+        IntegrationJob job, 
+        Guid runId)
+    {
+        var executingUserId = job.OwnerUserId ?? job.CreatorUserId;
+        if (executingUserId == null)
+        {
+            throw new InvalidOperationException("No owner or creator user is assigned to this job.");
+        }
+        var ownerUser = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == executingUserId);
+        if (ownerUser == null || string.IsNullOrEmpty(ownerUser.MicrosoftId))
+        {
+            throw new InvalidOperationException("Execution requires that the job owner's account be authenticated with Microsoft.");
+        }
+
+        var calendarName = destination.OutlookCalendarName;
+
+        await LogInfoAsync(job.Id, runId, "Obtaining Microsoft access token for Graph API...");
+        var token = await outlookCalendarApiClient.GetAccessTokenAsync(CancellationToken.None);
+        await LogInfoAsync(job.Id, runId, "Access token obtained successfully.");
+
+        List<Dictionary<string, object>> rows;
+        if (source.Type == ConnectorType.Csv)
+        {
+            await LogInfoAsync(job.Id, runId, $"Reading rows from CSV source '{source.CsvPath}'...");
+            rows = await ReadCsvRowsAsync(source);
+        }
+        else if (IsSqlConnector(source.Type))
+        {
+            await LogInfoAsync(job.Id, runId, $"Reading rows from SQL source...");
+            rows = await ReadSqlRowsAsync(source);
+        }
+        else if (source.Type == ConnectorType.Excel)
+        {
+            await LogInfoAsync(job.Id, runId, $"Reading rows from Excel source '{source.ExcelPath}'...");
+            rows = await ReadExcelRowsAsync(source);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Unsupported source type '{source.Type}' for Outlook destination.");
+        }
+
+        await LogInfoAsync(job.Id, runId, $"Read {rows.Count} row(s) from source. Commencing Outlook Event creation...");
+
+        int count = 0;
+        foreach (var row in rows)
+        {
+            var eventPayload = MapRowToEventPayload(row, destination.OutlookConfigJson);
+            await outlookCalendarApiClient.CreateEventAsync(ownerUser.MicrosoftId, calendarName, token, eventPayload, CancellationToken.None);
+            count++;
+        }
+
+        await LogInfoAsync(job.Id, runId, $"Successfully created {count} event(s) in Outlook calendar '{calendarName}'.");
+        return count;
+    }
+
+    private async Task<List<Dictionary<string, object>>> ReadCsvRowsAsync(Connector csvConnector)
+    {
+        var csvPath = csvConnector.CsvPath;
+        if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
+        {
+            throw new InvalidOperationException("CSV source path does not exist.");
+        }
+
+        var delimiter = string.IsNullOrEmpty(csvConnector.CsvDelimiter) ? "," : csvConnector.CsvDelimiter;
+        using var streamReader = new StreamReader(csvPath);
+        using var csvReader = new CsvReader(streamReader, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
+        {
+            Delimiter = delimiter,
+            BadDataFound = null,
+            MissingFieldFound = null
+        });
+
+        if (!await csvReader.ReadAsync() || !csvReader.ReadHeader())
+        {
+            return [];
+        }
+
+        var headers = csvReader.HeaderRecord ?? [];
+        var rows = new List<Dictionary<string, object>>();
+
+        while (await csvReader.ReadAsync())
+        {
+            var row = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var h in headers)
+            {
+                row[h] = csvReader.GetField(h) ?? string.Empty;
+            }
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    private object MapRowToEventPayload(Dictionary<string, object> row, string? configJson)
+    {
+        string subjectKey = "Subject";
+        string bodyKey = "Body";
+        string startKey = "Start";
+        string endKey = "End";
+        string locationKey = "Location";
+        string isAllDayKey = "IsAllDay";
+        
+        string recTypeKey = "RecurrenceType";
+        string recIntervalKey = "RecurrenceInterval";
+        string recDaysOfWeekKey = "RecurrenceDaysOfWeek";
+        string recRangeTypeKey = "RecurrenceRangeType";
+        string recEndDateKey = "RecurrenceEndDate";
+        string recOccurrencesKey = "RecurrenceOccurrences";
+
+        if (!string.IsNullOrEmpty(configJson))
+        {
+            try
+            {
+                using var configDoc = JsonDocument.Parse(configJson);
+                var root = configDoc.RootElement;
+                if (root.TryGetProperty("subjectColumn", out var prop)) subjectKey = prop.GetString() ?? subjectKey;
+                if (root.TryGetProperty("bodyColumn", out var propBody)) bodyKey = propBody.GetString() ?? bodyKey;
+                if (root.TryGetProperty("startColumn", out var propStart)) startKey = propStart.GetString() ?? startKey;
+                if (root.TryGetProperty("endColumn", out var propEnd)) endKey = propEnd.GetString() ?? endKey;
+                if (root.TryGetProperty("locationColumn", out var propLoc)) locationKey = propLoc.GetString() ?? locationKey;
+                if (root.TryGetProperty("isAllDayColumn", out var propAllDay)) isAllDayKey = propAllDay.GetString() ?? isAllDayKey;
+                if (root.TryGetProperty("recurrenceTypeColumn", out var propRecType)) recTypeKey = propRecType.GetString() ?? recTypeKey;
+                if (root.TryGetProperty("recurrenceIntervalColumn", out var propRecInt)) recIntervalKey = propRecInt.GetString() ?? recIntervalKey;
+                if (root.TryGetProperty("recurrenceDaysOfWeekColumn", out var propRecDays)) recDaysOfWeekKey = propRecDays.GetString() ?? recDaysOfWeekKey;
+                if (root.TryGetProperty("recurrenceRangeTypeColumn", out var propRecRange)) recRangeTypeKey = propRecRange.GetString() ?? recRangeTypeKey;
+                if (root.TryGetProperty("recurrenceEndDateColumn", out var propRecEnd)) recEndDateKey = propRecEnd.GetString() ?? recEndDateKey;
+                if (root.TryGetProperty("recurrenceOccurrencesColumn", out var propRecOcc)) recOccurrencesKey = propRecOcc.GetString() ?? recOccurrencesKey;
+            }
+            catch { }
+        }
+
+        object? GetValue(string key)
+        {
+            if (row.TryGetValue(key, out var val)) return val;
+            foreach (var kvp in row)
+            {
+                if (string.Equals(kvp.Key, key, StringComparison.OrdinalIgnoreCase)) return kvp.Value;
+            }
+            return null;
+        }
+
+        var subject = GetValue(subjectKey)?.ToString() ?? "Untitled Event";
+        var body = GetValue(bodyKey)?.ToString() ?? "";
+        
+        var startStr = GetValue(startKey)?.ToString() ?? DateTime.UtcNow.ToString("o");
+        var endStr = GetValue(endKey)?.ToString() ?? DateTime.UtcNow.AddHours(1).ToString("o");
+
+        if (DateTime.TryParse(startStr, out var startDate))
+        {
+            startStr = startDate.ToString("yyyy-MM-ddTHH:mm:ss");
+        }
+        if (DateTime.TryParse(endStr, out var endDate))
+        {
+            endStr = endDate.ToString("yyyy-MM-ddTHH:mm:ss");
+        }
+
+        var location = GetValue(locationKey)?.ToString() ?? "";
+        var isAllDayVal = GetValue(isAllDayKey);
+        bool isAllDay = false;
+        if (isAllDayVal != null)
+        {
+            if (isAllDayVal is bool b) isAllDay = b;
+            else bool.TryParse(isAllDayVal.ToString(), out isAllDay);
+        }
+
+        var eventPayload = new Dictionary<string, object>
+        {
+            { "subject", subject },
+            { "body", new { contentType = "HTML", content = body } },
+            { "start", new { dateTime = startStr, timeZone = "UTC" } },
+            { "end", new { dateTime = endStr, timeZone = "UTC" } },
+            { "isAllDay", isAllDay }
+        };
+
+        if (!string.IsNullOrEmpty(location))
+        {
+            eventPayload["location"] = new { displayName = location };
+        }
+
+        var recType = GetValue(recTypeKey)?.ToString();
+        if (!string.IsNullOrWhiteSpace(recType) && !string.Equals(recType, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            var intervalStr = GetValue(recIntervalKey)?.ToString() ?? "1";
+            int.TryParse(intervalStr, out var interval);
+            if (interval <= 0) interval = 1;
+
+            var pattern = new Dictionary<string, object>
+            {
+                { "type", recType.ToLower() },
+                { "interval", interval }
+            };
+
+            var daysOfWeekStr = GetValue(recDaysOfWeekKey)?.ToString();
+            if (!string.IsNullOrWhiteSpace(daysOfWeekStr))
+            {
+                var days = daysOfWeekStr.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                                        .Select(d => d.Trim().ToLower())
+                                        .ToArray();
+                if (days.Length > 0)
+                {
+                    pattern["daysOfWeek"] = days;
+                }
+            }
+
+            var rangeType = GetValue(recRangeTypeKey)?.ToString() ?? "noEnd";
+            var range = new Dictionary<string, object>
+            {
+                { "type", rangeType.ToLower() },
+                { "startDate", DateTime.TryParse(startStr, out var parsedStart) ? parsedStart.ToString("yyyy-MM-dd") : DateTime.UtcNow.ToString("yyyy-MM-dd") }
+            };
+
+            if (string.Equals(rangeType, "endDate", StringComparison.OrdinalIgnoreCase))
+            {
+                var endRecStr = GetValue(recEndDateKey)?.ToString();
+                if (DateTime.TryParse(endRecStr, out var parsedEnd))
+                {
+                    range["endDate"] = parsedEnd.ToString("yyyy-MM-dd");
+                }
+                else
+                {
+                    range["endDate"] = DateTime.UtcNow.AddMonths(1).ToString("yyyy-MM-dd");
+                }
+            }
+            else if (string.Equals(rangeType, "numbered", StringComparison.OrdinalIgnoreCase))
+            {
+                var occStr = GetValue(recOccurrencesKey)?.ToString() ?? "10";
+                int.TryParse(occStr, out var occurrences);
+                if (occurrences <= 0) occurrences = 10;
+                range["numberOfOccurrences"] = occurrences;
+            }
+
+            eventPayload["recurrence"] = new
+            {
+                pattern = pattern,
+                range = range
+            };
+        }
+
+        return eventPayload;
+    }
+
+    private async Task<List<Dictionary<string, object>>> ReadSqlRowsAsync(Connector sqlConnector)
+    {
+        var sqlConfig = GetSqlConfig(sqlConnector);
+        if (sqlConfig.Tables.Count == 0)
+        {
+            throw new InvalidOperationException("SQL source requires at least one table configuration.");
+        }
+
+        var table = sqlConfig.Tables[0];
+        var fieldsToRead = string.Join(", ", table.Fields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
+        var sourceTable = QuoteIdentifier(sqlConnector.Type, table.Name);
+
+        using var conn = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT {fieldsToRead} FROM {sourceTable}";
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        var rows = new List<Dictionary<string, object>>();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                var name = reader.GetName(i);
+                var val = reader.GetValue(i);
+                row[name] = val == DBNull.Value ? string.Empty : val;
+            }
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    private Task<List<Dictionary<string, object>>> ReadExcelRowsAsync(Connector excelConnector)
+    {
+        var excelPath = excelConnector.ExcelPath;
+        if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
+        {
+            throw new InvalidOperationException("Excel source path does not exist.");
+        }
+
+        var sheetName = excelConnector.ExcelSheetName;
+        var rows = new List<Dictionary<string, object>>();
+        
+        var excelRows = MiniExcel.Query(excelPath, sheetName: sheetName, useHeaderRow: true);
+        foreach (IDictionary<string, object> excelRow in excelRows)
+        {
+            var row = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in excelRow)
+            {
+                row[kvp.Key] = kvp.Value ?? string.Empty;
+            }
+            rows.Add(row);
+        }
+
+        return Task.FromResult(rows);
     }
 }

@@ -8,7 +8,8 @@ public enum ConnectorType
     Excel,
     Path,
     Sftp,
-    SharePoint
+    SharePoint,
+    OutlookCalendar
 }
 
 public sealed record ConnectorDto(
@@ -21,6 +22,7 @@ public sealed record ConnectorDto(
     PathConnectorSettingsDto? Path,
     SftpConnectorSettingsDto? Sftp,
     SharePointConnectorSettingsDto? SharePoint,
+    OutlookCalendarConnectorSettingsDto? OutlookCalendar,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -57,7 +59,8 @@ public sealed record CreateConnectorRequest(
     ExcelConnectorSettingsDto? Excel = null,
     PathConnectorSettingsDto? Path = null,
     SftpConnectorSettingsInputDto? Sftp = null,
-    SharePointConnectorSettingsInputDto? SharePoint = null);
+    SharePointConnectorSettingsInputDto? SharePoint = null,
+    OutlookCalendarConnectorSettingsInputDto? OutlookCalendar = null);
 
 
 public sealed record TestConnectorRequest(
@@ -67,7 +70,8 @@ public sealed record TestConnectorRequest(
     ExcelConnectorSettingsDto? Excel = null,
     PathConnectorSettingsDto? Path = null,
     SftpConnectorSettingsInputDto? Sftp = null,
-    SharePointConnectorSettingsInputDto? SharePoint = null);
+    SharePointConnectorSettingsInputDto? SharePoint = null,
+    OutlookCalendarConnectorSettingsInputDto? OutlookCalendar = null);
 
 public sealed record SharePointConnectorSettingsDto(
     string SiteUrl,
@@ -104,3 +108,11 @@ public sealed record TestConnectorResponse(
     bool IsSuccess,
     string Message,
     DateTimeOffset TestedAtUtc);
+
+public sealed record OutlookCalendarConnectorSettingsDto(
+    string CalendarName,
+    string? ConfigJson);
+
+public sealed record OutlookCalendarConnectorSettingsInputDto(
+    string CalendarName,
+    string? ConfigJson = null);

@@ -151,7 +151,7 @@
             {
                 <div class="integration-card connected">
                     <div class="int-icon" style="background: @GetConnectorIconBg(connector.Type); color: @GetConnectorIconColor(connector.Type)">
-                        @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : connector.Type == ConnectorType.SharePoint ? "S" : "📄")
+                        @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : connector.Type == ConnectorType.SharePoint ? "S" : connector.Type == ConnectorType.OutlookCalendar ? "📅" : "📄")
                     </div>
                     <div class="int-name">@connector.Name</div>
                     <div class="int-jobs">@connector.Type.ToString()</div>
@@ -292,6 +292,7 @@
             ConnectorType.SqlServer => "var(--blue-dim)",
             ConnectorType.Postgres => "rgba(166, 109, 255, 0.1)",
             ConnectorType.SharePoint => "rgba(249, 115, 22, 0.1)",
+            ConnectorType.OutlookCalendar => "rgba(59, 130, 246, 0.1)",
             _ => "rgba(74, 222, 128, 0.1)"
         };
     }
@@ -303,6 +304,7 @@
             ConnectorType.SqlServer => "var(--blue)",
             ConnectorType.Postgres => "var(--violet-300)",
             ConnectorType.SharePoint => "rgb(249, 115, 22)",
+            ConnectorType.OutlookCalendar => "rgb(59, 130, 246)",
             _ => "rgb(74, 222, 128)"
         };
     }
