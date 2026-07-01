@@ -8,6 +8,7 @@ public enum ConnectorType
     Excel,
     Path,
     Sftp,
-    SharePoint
+    SharePoint,
+    OutlookCalendar
 }
 
