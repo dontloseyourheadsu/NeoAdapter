@@ -1719,13 +1719,61 @@ public sealed class IntegrationJobExecutor(
         return eventPayload;
     }
 
-    private Task<List<Dictionary<string, object>>> ReadSqlRowsAsync(Connector sqlConnector)
+    private async Task<List<Dictionary<string, object>>> ReadSqlRowsAsync(Connector sqlConnector)
     {
-        throw new NotImplementedException();
+        var sqlConfig = GetSqlConfig(sqlConnector);
+        if (sqlConfig.Tables.Count == 0)
+        {
+            throw new InvalidOperationException("SQL source requires at least one table configuration.");
+        }
+
+        var table = sqlConfig.Tables[0];
+        var fieldsToRead = string.Join(", ", table.Fields.Select(f => QuoteIdentifier(sqlConnector.Type, f)));
+        var sourceTable = QuoteIdentifier(sqlConnector.Type, table.Name);
+
+        using var conn = await CreateAndOpenSqlConnectionAsync(sqlConnector);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT {fieldsToRead} FROM {sourceTable}";
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        var rows = new List<Dictionary<string, object>>();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                var name = reader.GetName(i);
+                var val = reader.GetValue(i);
+                row[name] = val == DBNull.Value ? string.Empty : val;
+            }
+            rows.Add(row);
+        }
+
+        return rows;
     }
 
     private Task<List<Dictionary<string, object>>> ReadExcelRowsAsync(Connector excelConnector)
     {
-        throw new NotImplementedException();
+        var excelPath = excelConnector.ExcelPath;
+        if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
+        {
+            throw new InvalidOperationException("Excel source path does not exist.");
+        }
+
+        var sheetName = excelConnector.ExcelSheetName;
+        var rows = new List<Dictionary<string, object>>();
+        
+        var excelRows = MiniExcel.Query(excelPath, sheetName: sheetName, useHeaderRow: true);
+        foreach (IDictionary<string, object> excelRow in excelRows)
+        {
+            var row = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in excelRow)
+            {
+                row[kvp.Key] = kvp.Value ?? string.Empty;
+            }
+            rows.Add(row);
+        }
+
+        return Task.FromResult(rows);
     }
 }
