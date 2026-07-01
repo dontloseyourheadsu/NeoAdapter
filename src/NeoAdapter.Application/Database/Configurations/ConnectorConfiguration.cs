@@ -106,6 +106,14 @@ public sealed class ConnectorConfiguration : IEntityTypeConfiguration<Connector>
             .HasColumnName("sharepoint_config_json")
             .HasColumnType("jsonb");
 
+        builder.Property(connector => connector.OutlookCalendarName)
+            .HasColumnName("outlook_calendar_name")
+            .HasMaxLength(255);
+
+        builder.Property(connector => connector.OutlookConfigJson)
+            .HasColumnName("outlook_config_json")
+            .HasColumnType("jsonb");
+
 
         builder.Property(connector => connector.CreatedAtUtc)
             .HasColumnName("created_at_utc")
