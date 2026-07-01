@@ -59,10 +59,10 @@
                         @foreach (var connector in _connectors)
                         {
                             var isSelected = _selectedConnector?.Id == connector.Id;
-                            var typeClass = connector.Type == ConnectorType.SqlServer ? "blue" : connector.Type == ConnectorType.Postgres ? "violet" : connector.Type == ConnectorType.SharePoint ? "orange" : "green";
+                            var typeClass = connector.Type == ConnectorType.SqlServer ? "blue" : connector.Type == ConnectorType.Postgres ? "violet" : connector.Type == ConnectorType.SharePoint ? "orange" : connector.Type == ConnectorType.OutlookCalendar ? "blue" : "green";
                             <div class="job-item @(isSelected ? "active" : "")" @onclick="() => SelectConnector(connector)" style="cursor: pointer;">
                                 <div class="job-item-icon @typeClass">
-                                    @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : connector.Type == ConnectorType.SharePoint ? "S" : "📄")
+                                    @(connector.Type == ConnectorType.SqlServer ? "🛢" : connector.Type == ConnectorType.Postgres ? "🐘" : connector.Type == ConnectorType.SharePoint ? "S" : connector.Type == ConnectorType.OutlookCalendar ? "📅" : "📄")
                                 </div>
                                 <div class="job-item-info">
                                     <div class="job-item-name">@connector.Name</div>
@@ -147,6 +147,7 @@
                                 <option value="@ConnectorType.Path">Path (Local Directory/File)</option>
                                 <option value="@ConnectorType.Sftp">SFTP Server</option>
                                 <option value="@ConnectorType.SharePoint">SharePoint List (SharePoint)</option>
+                                <option value="@ConnectorType.OutlookCalendar">Outlook Calendar (Outlook)</option>
                             </select>
                         }
                         else
@@ -284,6 +285,100 @@
                                 </div>
                             </div>
                         }
+                    }
+                    else if (_connType == ConnectorType.OutlookCalendar)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Calendar Name</label>
+                            <div style="display: flex; gap: 8px;">
+                                @if (_isEditingConnector)
+                                {
+                                    <input type="text" class="form-input" @bind="_outlookCalendarName" placeholder="Calendar Name (e.g. Calendar)" style="flex: 1;" />
+                                    <button type="button" class="btn-secondary" @onclick="LoadOutlookCalendarsAsync" disabled="@_isBusy">Load Calendars</button>
+                                }
+                                else
+                                {
+                                    <input type="text" class="form-input" value="@_outlookCalendarName" readonly />
+                                }
+                            </div>
+                        </div>
+                        @if (_outlookCalendars.Count > 0 && _isEditingConnector)
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Select Calendar</label>
+                                <select class="form-input" @onchange="OnOutlookCalendarSelected">
+                                    <option value="">-- Choose Calendar --</option>
+                                    @foreach (var cal in _outlookCalendars)
+                                    {
+                                        <option value="@cal">@cal</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        <h4 style="margin-top: 20px; border-bottom: 1px solid var(--dark-300); padding-bottom: 8px;">Field Column Mapping</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+                            <div class="form-group">
+                                <label class="form-label">Subject Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColSubject" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Body/Description Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColBody" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">Start Date/Time Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColStart" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">End Date/Time Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColEnd" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">Location Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColLocation" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Is All Day Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColIsAllDay" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
+
+                        <h4 style="margin-top: 20px; border-bottom: 1px solid var(--dark-300); padding-bottom: 8px;">Recurrence Mapping (Optional)</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+                            <div class="form-group">
+                                <label class="form-label">Recurrence Type Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColRecType" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Recurrence Interval Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColRecInterval" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">Recurrence Days Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColRecDays" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Range Type Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColRecRange" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">Recurrence End Date Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColRecEnd" readonly="@(!_isEditingConnector)" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Occurrences Column</label>
+                                <input type="text" class="form-input" @bind="_outlookColRecOcc" readonly="@(!_isEditingConnector)" />
+                            </div>
+                        </div>
                     }
 
                     @if (_isEditingConnector)
@@ -667,6 +762,21 @@
     private string _sharepointConfigJson = "";
     private List<string> _sharepointLists = new();
     private List<SharePointFieldDto> _sharepointFields = new();
+    private string _outlookCalendarName = "";
+    private string _outlookConfigJson = "";
+    private List<string> _outlookCalendars = new();
+    private string _outlookColSubject = "Subject";
+    private string _outlookColBody = "Body";
+    private string _outlookColStart = "Start";
+    private string _outlookColEnd = "End";
+    private string _outlookColLocation = "Location";
+    private string _outlookColIsAllDay = "IsAllDay";
+    private string _outlookColRecType = "RecurrenceType";
+    private string _outlookColRecInterval = "RecurrenceInterval";
+    private string _outlookColRecDays = "RecurrenceDaysOfWeek";
+    private string _outlookColRecRange = "RecurrenceRangeType";
+    private string _outlookColRecEnd = "RecurrenceEndDate";
+    private string _outlookColRecOcc = "RecurrenceOccurrences";
 
     // Form bindings (Job)
     private string _jobName = "";
@@ -722,6 +832,10 @@
         _sharepointConfigJson = "";
         _sharepointLists.Clear();
         _sharepointFields.Clear();
+        _outlookCalendarName = "";
+        _outlookConfigJson = "";
+        _outlookCalendars.Clear();
+        LoadOutlookConfig(null);
         _isEditingConnector = true;
         ClearBanners();
     }
@@ -767,6 +881,13 @@
             _sharepointFields.Clear();
             _ = LoadSharePointFieldsAsync();
         }
+        else if (connector.OutlookCalendar != null)
+        {
+            _outlookCalendarName = connector.OutlookCalendar.CalendarName;
+            _outlookConfigJson = connector.OutlookCalendar.ConfigJson ?? "";
+            _outlookCalendars.Clear();
+            LoadOutlookConfig(_outlookConfigJson);
+        }
  
         ClearBanners();
     }
@@ -810,6 +931,11 @@
         _isBusy = true;
         try
         {
+            if (_connType == ConnectorType.OutlookCalendar)
+            {
+                UpdateOutlookConfigJson();
+            }
+
             var req = new CreateConnectorRequest(
                 _connName,
                 _connType,
@@ -820,7 +946,8 @@
                 null,
                 _connType == ConnectorType.Path ? new PathConnectorSettingsDto(_localPath) : null,
                 _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null,
-                _connType == ConnectorType.SharePoint ? new SharePointConnectorSettingsInputDto(_sharepointSiteUrl, _sharepointListName, null) : null
+                _connType == ConnectorType.SharePoint ? new SharePointConnectorSettingsInputDto(_sharepointSiteUrl, _sharepointListName, null) : null,
+                _connType == ConnectorType.OutlookCalendar ? new OutlookCalendarConnectorSettingsInputDto(_outlookCalendarName, _outlookConfigJson) : null
             );
 
             var result = await ConnectorApiClient.CreateAsync(req, CancellationToken.None);
@@ -848,6 +975,11 @@
 
     private TestConnectorRequest CreateTestConnectorRequest()
     {
+        if (_connType == ConnectorType.OutlookCalendar)
+        {
+            UpdateOutlookConfigJson();
+        }
+
         return new TestConnectorRequest(
             _connType,
             (_connType == ConnectorType.SqlServer || _connType == ConnectorType.Postgres)
@@ -857,7 +989,8 @@
             null,
             _connType == ConnectorType.Path ? new PathConnectorSettingsDto(_localPath) : null,
             _connType == ConnectorType.Sftp ? new SftpConnectorSettingsInputDto(_sftpHost, _sftpPort, _sftpUsername, _sftpPassword, _sftpRemotePath) : null,
-            _connType == ConnectorType.SharePoint ? new SharePointConnectorSettingsInputDto(_sharepointSiteUrl, _sharepointListName, null) : null
+            _connType == ConnectorType.SharePoint ? new SharePointConnectorSettingsInputDto(_sharepointSiteUrl, _sharepointListName, null) : null,
+            _connType == ConnectorType.OutlookCalendar ? new OutlookCalendarConnectorSettingsInputDto(_outlookCalendarName, _outlookConfigJson) : null
         );
     }
 
@@ -1322,6 +1455,95 @@
         catch (Exception ex)
         {
             _errorMessage = $"Failed to load SharePoint fields: {ex.Message}";
+        }
+    }
+
+    private async Task LoadOutlookCalendarsAsync()
+    {
+        _errorMessage = null;
+        _isBusy = true;
+        try
+        {
+            var calendars = await ConnectorApiClient.GetOutlookCalendarsAsync(CancellationToken.None);
+            _outlookCalendars = calendars.ToList();
+            if (_outlookCalendars.Count == 0)
+            {
+                _errorMessage = "No calendars found or your user is not authenticated with Microsoft.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load Outlook calendars: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void OnOutlookCalendarSelected(ChangeEventArgs e)
+    {
+        var cal = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(cal))
+        {
+            _outlookCalendarName = cal;
+        }
+    }
+
+    private void UpdateOutlookConfigJson()
+    {
+        var configObj = new Dictionary<string, string>();
+        if (!string.IsNullOrWhiteSpace(_outlookColSubject)) configObj["subjectColumn"] = _outlookColSubject;
+        if (!string.IsNullOrWhiteSpace(_outlookColBody)) configObj["bodyColumn"] = _outlookColBody;
+        if (!string.IsNullOrWhiteSpace(_outlookColStart)) configObj["startColumn"] = _outlookColStart;
+        if (!string.IsNullOrWhiteSpace(_outlookColEnd)) configObj["endColumn"] = _outlookColEnd;
+        if (!string.IsNullOrWhiteSpace(_outlookColLocation)) configObj["locationColumn"] = _outlookColLocation;
+        if (!string.IsNullOrWhiteSpace(_outlookColIsAllDay)) configObj["isAllDayColumn"] = _outlookColIsAllDay;
+        if (!string.IsNullOrWhiteSpace(_outlookColRecType)) configObj["recurrenceTypeColumn"] = _outlookColRecType;
+        if (!string.IsNullOrWhiteSpace(_outlookColRecInterval)) configObj["recurrenceIntervalColumn"] = _outlookColRecInterval;
+        if (!string.IsNullOrWhiteSpace(_outlookColRecDays)) configObj["recurrenceDaysOfWeekColumn"] = _outlookColRecDays;
+        if (!string.IsNullOrWhiteSpace(_outlookColRecRange)) configObj["recurrenceRangeTypeColumn"] = _outlookColRecRange;
+        if (!string.IsNullOrWhiteSpace(_outlookColRecEnd)) configObj["recurrenceEndDateColumn"] = _outlookColRecEnd;
+        if (!string.IsNullOrWhiteSpace(_outlookColRecOcc)) configObj["recurrenceOccurrencesColumn"] = _outlookColRecOcc;
+
+        _outlookConfigJson = JsonSerializer.Serialize(configObj);
+    }
+
+    private void LoadOutlookConfig(string? json)
+    {
+        _outlookColSubject = "Subject";
+        _outlookColBody = "Body";
+        _outlookColStart = "Start";
+        _outlookColEnd = "End";
+        _outlookColLocation = "Location";
+        _outlookColIsAllDay = "IsAllDay";
+        _outlookColRecType = "RecurrenceType";
+        _outlookColRecInterval = "RecurrenceInterval";
+        _outlookColRecDays = "RecurrenceDaysOfWeek";
+        _outlookColRecRange = "RecurrenceRangeType";
+        _outlookColRecEnd = "RecurrenceEndDate";
+        _outlookColRecOcc = "RecurrenceOccurrences";
+
+        if (!string.IsNullOrEmpty(json))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("subjectColumn", out var p)) _outlookColSubject = p.GetString() ?? _outlookColSubject;
+                if (root.TryGetProperty("bodyColumn", out var p)) _outlookColBody = p.GetString() ?? _outlookColBody;
+                if (root.TryGetProperty("startColumn", out var p)) _outlookColStart = p.GetString() ?? _outlookColStart;
+                if (root.TryGetProperty("endColumn", out var p)) _outlookColEnd = p.GetString() ?? _outlookColEnd;
+                if (root.TryGetProperty("locationColumn", out var p)) _outlookColLocation = p.GetString() ?? _outlookColLocation;
+                if (root.TryGetProperty("isAllDayColumn", out var p)) _outlookColIsAllDay = p.GetString() ?? _outlookColIsAllDay;
+                if (root.TryGetProperty("recurrenceTypeColumn", out var p)) _outlookColRecType = p.GetString() ?? _outlookColRecType;
+                if (root.TryGetProperty("recurrenceIntervalColumn", out var p)) _outlookColRecInterval = p.GetString() ?? _outlookColRecInterval;
+                if (root.TryGetProperty("recurrenceDaysOfWeekColumn", out var p)) _outlookColRecDays = p.GetString() ?? _outlookColRecDays;
+                if (root.TryGetProperty("recurrenceRangeTypeColumn", out var p)) _outlookColRecRange = p.GetString() ?? _outlookColRecRange;
+                if (root.TryGetProperty("recurrenceEndDateColumn", out var p)) _outlookColRecEnd = p.GetString() ?? _outlookColRecEnd;
+                if (root.TryGetProperty("recurrenceOccurrencesColumn", out var p)) _outlookColRecOcc = p.GetString() ?? _outlookColRecOcc;
+            }
+            catch {}
         }
     }
 
