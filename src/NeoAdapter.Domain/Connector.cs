@@ -48,6 +48,10 @@ public sealed class Connector
 
     public string? SharePointConfigJson { get; set; }
 
+    public string? OutlookCalendarName { get; set; }
+
+    public string? OutlookConfigJson { get; set; }
+
 
     public Guid? OwnerUserId { get; set; }
 
