@@ -15,7 +15,8 @@ namespace NeoAdapter.Api.Controllers;
 public sealed class ConnectorsController(
     IConnectorService connectorService,
     NeoAdapterDbContext dbContext,
-    ISharePointApiClient sharePointApiClient) : ControllerBase
+    ISharePointApiClient sharePointApiClient,
+    IOutlookCalendarApiClient outlookCalendarApiClient) : ControllerBase
 {
     [AllowAnonymous]
     [HttpGet("ping")]
@@ -130,6 +131,29 @@ public sealed class ConnectorsController(
             var token = await sharePointApiClient.GetAccessTokenAsync(siteUrl, cancellationToken);
             var fields = await sharePointApiClient.GetFieldsAsync(siteUrl, listName, token, cancellationToken);
             return Ok(fields);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpGet("outlook/calendars")]
+    public async Task<ActionResult<IReadOnlyList<string>>> GetOutlookCalendars(
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUserAsync(cancellationToken);
+        if (user == null) return Unauthorized();
+        if (string.IsNullOrEmpty(user.MicrosoftId))
+        {
+            return BadRequest("Your account must be authenticated with Microsoft to use Outlook Calendar features.");
+        }
+
+        try
+        {
+            var token = await outlookCalendarApiClient.GetAccessTokenAsync(cancellationToken);
+            var calendars = await outlookCalendarApiClient.GetCalendarsAsync(user.MicrosoftId, token, cancellationToken);
+            return Ok(calendars);
         }
         catch (Exception ex)
         {
