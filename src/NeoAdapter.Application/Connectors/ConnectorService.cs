@@ -15,7 +15,8 @@ namespace NeoAdapter.Application.Connectors;
 public sealed class ConnectorService(
     NeoAdapterDbContext dbContext,
     ISqlSecretProtector sqlSecretProtector,
-    ISharePointApiClient sharePointApiClient) : IConnectorService
+    ISharePointApiClient sharePointApiClient,
+    IOutlookCalendarApiClient outlookCalendarApiClient) : IConnectorService
 {
     private class SqlTableConfig
     {
@@ -190,6 +191,27 @@ public sealed class ConnectorService(
             connector.SharePointSiteUrl = request.SharePoint.SiteUrl.Trim();
             connector.SharePointListName = request.SharePoint.ListName.Trim();
             connector.SharePointConfigJson = request.SharePoint.ConfigJson;
+        }
+        else if (request.Type == ConnectorTypeContract.OutlookCalendar)
+        {
+            var user = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            if (user == null || string.IsNullOrEmpty(user.MicrosoftId))
+            {
+                throw new InvalidOperationException("Creating an Outlook Calendar connector requires that your account be authenticated with Microsoft.");
+            }
+
+            if (request.OutlookCalendar is null)
+            {
+                throw new InvalidOperationException("Outlook Calendar connector settings are required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.OutlookCalendar.CalendarName))
+            {
+                throw new InvalidOperationException("Outlook Calendar Name is required.");
+            }
+
+            connector.OutlookCalendarName = request.OutlookCalendar.CalendarName.Trim();
+            connector.OutlookConfigJson = request.OutlookCalendar.ConfigJson;
         }
         else
         {
@@ -456,6 +478,30 @@ public sealed class ConnectorService(
                 return new TestConnectorResponse(false, $"SharePoint connection test failed: {ex.Message}", DateTimeOffset.UtcNow);
             }
         }
+        else if (request.Type == ConnectorTypeContract.OutlookCalendar)
+        {
+            if (request.OutlookCalendar is null)
+            {
+                throw new InvalidOperationException("Outlook Calendar connector settings are required.");
+            }
+
+            var user = await dbContext.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            if (user == null || string.IsNullOrEmpty(user.MicrosoftId))
+            {
+                throw new InvalidOperationException("Testing an Outlook Calendar connector requires that your account be authenticated with Microsoft.");
+            }
+
+            try
+            {
+                var token = await outlookCalendarApiClient.GetAccessTokenAsync(cancellationToken);
+                var calendars = await outlookCalendarApiClient.GetCalendarsAsync(user.MicrosoftId, token, cancellationToken);
+                return new TestConnectorResponse(true, $"Outlook Calendar connection succeeded. Found {calendars.Count} calendar(s).", DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                return new TestConnectorResponse(false, $"Outlook Calendar connection test failed: {ex.Message}", DateTimeOffset.UtcNow);
+            }
+        }
         else
         {
             throw new InvalidOperationException("Unsupported connector type.");
@@ -565,6 +611,14 @@ public sealed class ConnectorService(
                 connector.SharePointConfigJson);
         }
 
+        OutlookCalendarConnectorSettingsDto? outlookSettings = null;
+        if (connector.Type == ConnectorTypeDomain.OutlookCalendar)
+        {
+            outlookSettings = new OutlookCalendarConnectorSettingsDto(
+                connector.OutlookCalendarName ?? string.Empty,
+                connector.OutlookConfigJson);
+        }
+
         return new ConnectorDto(
             connector.Id,
             connector.Name,
@@ -575,6 +629,7 @@ public sealed class ConnectorService(
             pathSettings,
             sftpSettings,
             sharepointSettings,
+            outlookSettings,
             connector.CreatedAtUtc,
             connector.UpdatedAtUtc);
     }
@@ -588,6 +643,7 @@ public sealed class ConnectorService(
         ConnectorTypeContract.Path => ConnectorTypeDomain.Path,
         ConnectorTypeContract.Sftp => ConnectorTypeDomain.Sftp,
         ConnectorTypeContract.SharePoint => ConnectorTypeDomain.SharePoint,
+        ConnectorTypeContract.OutlookCalendar => ConnectorTypeDomain.OutlookCalendar,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
@@ -600,6 +656,7 @@ public sealed class ConnectorService(
         ConnectorTypeDomain.Path => ConnectorTypeContract.Path,
         ConnectorTypeDomain.Sftp => ConnectorTypeContract.Sftp,
         ConnectorTypeDomain.SharePoint => ConnectorTypeContract.SharePoint,
+        ConnectorTypeDomain.OutlookCalendar => ConnectorTypeContract.OutlookCalendar,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
